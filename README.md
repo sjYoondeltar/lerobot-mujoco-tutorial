@@ -1,8 +1,8 @@
 # LeRobot Tutorial with MuJoCo
-This repository contains minimal exampls for collecting demonstration data and training (or fine-tuning) vision language action models on custom dataset. 
+This repository contains minimal examples for collecting demonstration data and training (or fine-tuning) vision language action models on custom datasets. 
 
 ## Installation
-We have tested our enviornment on python 3.10. 
+We have tested our environment on python 3.10. 
 
 First, let's install lerobot package.
 ```
@@ -28,12 +28,12 @@ unzip plate_11.zip
 
 Run [1.collect_data.ipynb](1.collect_data.ipynb)
 
-Collect demonstration data for given environment.
-The task it to pick mug, and place it on the plate. The environment recognize the success if the mug is on the plate, gripper opened, and the end-effector postioned above the mug.
+Collect demonstration data for the given environment.
+The task is to pick a mug and place it on the plate. The environment recognizes the success if the mug is on the plate, gthe ripper opened, and the end-effector positioned above the mug.
 
 <img src="./media/teleop.gif" width="480" height="360">
 
-Use WASD for xy plane, RF for z axis, QE for tilit, and ARROWs for the rest of rotations. 
+Use WASD for the xy plane, RF for the z-axis, QE for tilt, and ARROWs for the rest of rthe otations. 
 
 SPACEBAR will change your gripper's state, and Z key will reset your environment with discarding the current episode data.
 
@@ -76,7 +76,7 @@ features={
 
 ```
 
-This will make the dataset on './demo_data' folder, which will look like,
+This will make the dataset on './demo_data' folder, which will look like this,
 ```
 .
 ├── data
@@ -91,7 +91,7 @@ This will make the dataset on './demo_data' folder, which will look like,
 └── 
 ```
 
-We have added [Example Data](./demo_data_example/) in the repository for convinience. 
+For convenience, we have added [Example Data](./demo_data_example/) to the repository. 
 
 ## 2. Playback Your Data
 
@@ -99,7 +99,7 @@ Run [2.visualize_data.ipynb](2.visualize_data.ipynb)
 
 <img src="./media/data.gif" width="480" height="360"></img>
 
-Visualize your action based on the recontructed simulation scene. 
+Visualize your action based on the reconstructed simulation scene. 
 
 The main simulation is replaying the action.
 
@@ -111,11 +111,11 @@ Run [3.train.ipynb](3.train.ipynb)
 
 **This takes around 30~60 mins**.
 
-Train ACT model on your custom dataset. In this example, we set chunk_size as 10. 
+Train the ACT model on your custom dataset. In this example, we set chunk_size as 10. 
 
 The trained checkpoint will be saved in './ckpt/act_y' folder.
 
-To evaluate the policy on the dataset, you can calculate error between ground-truth action from the dataset.
+To evaluate the policy on the dataset, you can calculate the error between ground-truth actions from the dataset.
 
 <image src="./media/inference.png"  width="480" height="360">
 
@@ -128,9 +128,9 @@ You can download checkpoint from [google drive](https://drive.google.com/drive/f
 
 <img src="./media/rollout.gif" width="480" height="360" controls></img>
 
-Deploy trained policy in simualtion.
+Deploy trained policy in simulation.
 
 ## Acknowledgements
-- The asset for the robotis-omy manipulater is from [robotis_mujoco_menagerie](https://github.com/ROBOTIS-GIT/robotis_mujoco_menagerie/tree/main).
+- The asset for the robotis-omy manipulator is from [robotis_mujoco_menagerie](https://github.com/ROBOTIS-GIT/robotis_mujoco_menagerie/tree/main).
 - The [MuJoco Parser Class](./mujoco_env/mujoco_parser.py) is modified from [yet-another-mujoco-tutorial](https://github.com/sjchoi86/yet-another-mujoco-tutorial-v3). 
-- We refer original tutorials from [lerobot examples](https://github.com/huggingface/lerobot/tree/main/examples).  
+- We refer to original tutorials from [lerobot examples](https://github.com/huggingface/lerobot/tree/main/examples).  
