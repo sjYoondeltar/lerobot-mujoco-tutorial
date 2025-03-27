@@ -1,3 +1,4 @@
 mujoco==3.1.6
 pyautogui
 matplotlib
+scipy
