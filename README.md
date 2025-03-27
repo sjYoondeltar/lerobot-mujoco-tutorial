@@ -134,3 +134,4 @@ Deploy trained policy in simulation.
 - The asset for the robotis-omy manipulator is from [robotis_mujoco_menagerie](https://github.com/ROBOTIS-GIT/robotis_mujoco_menagerie/tree/main).
 - The [MuJoco Parser Class](./mujoco_env/mujoco_parser.py) is modified from [yet-another-mujoco-tutorial](https://github.com/sjchoi86/yet-another-mujoco-tutorial-v3). 
 - We refer to original tutorials from [lerobot examples](https://github.com/huggingface/lerobot/tree/main/examples).  
+- The assets for plate and mug is from [Ovjaverse](https://objaverse.allenai.org/).
