@@ -31,7 +31,7 @@ Run [1.collect_data.ipynb](1.collect_data.ipynb)
 Collect demonstration data for given environment.
 The task it to pick mug, and place it on the plate. The environment recognize the success if the mug is on the plate, gripper opened, and the end-effector postioned above the mug.
 
-<video src="./media/teleop.mp4" width="480" height="360" controls></video>
+<img src="./media/teleop.gif" width="480" height="360">
 
 Use WASD for xy plane, RF for z axis, QE for tilit, and ARROWs for the rest of rotations. 
 
@@ -97,7 +97,7 @@ We have added [Example Data](./demo_data_example/) in the repository for convini
 
 Run [2.visualize_data.ipynb](2.visualize_data.ipynb)
 
-<video src="./media/data.mp4" width="480" height="360" controls></video>
+<img src="./media/data.gif" width="480" height="360"></img>
 
 Visualize your action based on the recontructed simulation scene. 
 
@@ -126,7 +126,7 @@ Run [4.deploy.ipynb](4.deploy.ipynb)
 
 You can download checkpoint from [google drive](https://drive.google.com/drive/folders/1UqxqUgGPKU04DkpQqSWNgfYMhlvaiZsp?usp=sharing) if you don't have gpu to train your model.
 
-<video src="./media/rollout.mp4" width="480" height="360" controls></video>
+<img src="./media/rollout.gif" width="480" height="360" controls></img>
 
 Deploy trained policy in simualtion.
 
