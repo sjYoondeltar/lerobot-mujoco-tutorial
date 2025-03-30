@@ -8,11 +8,17 @@ This script allows you to playback and visualize robot demonstration data.
 It loads the collected dataset and replays the actions in a MuJoCo simulation.
 """
 
+import sys
+import os
+
+# Add the project root directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-from mujoco_env.y_env import SimpleEnv
+# Import mujoco_env components inside the functions
 
 
 def visualize_dataset(env, dataset, episode_idx=0):
@@ -52,6 +58,9 @@ def main():
         print(f"Failed to load dataset: {e}")
         print("Please make sure you have collected data or are using the correct path.")
         return
+    
+    # Import mujoco_env components here to avoid immediate import
+    from mujoco_env.y_env import SimpleEnv
     
     # Initialize the environment
     env = SimpleEnv(XML_PATH, seed=0, state_type='joint_angle')

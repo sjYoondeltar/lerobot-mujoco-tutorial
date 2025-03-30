@@ -11,6 +11,10 @@ The trained checkpoint will be saved in the './ckpt/act_y' folder.
 
 import os
 import sys
+
+# Add the project root directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import time
 import torch

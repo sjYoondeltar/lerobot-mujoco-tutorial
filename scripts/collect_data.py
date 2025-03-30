@@ -24,12 +24,16 @@ For overlayed images:
 """
 
 import sys
+import os
+
+# Add the project root directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import random
 import numpy as np
-import os
 import shutil
 from PIL import Image
-from mujoco_env.y_env import SimpleEnv
+# Import the SimpleEnv inside the function to avoid immediate import
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 
@@ -161,6 +165,9 @@ def main():
     ROOT = "./demo_data"  # The root directory to save the demonstrations
     TASK_NAME = 'Put mug cup on the plate'
     XML_PATH = './asset/example_scene_y.xml'
+    
+    # Import the SimpleEnv here to avoid immediate import
+    from mujoco_env.y_env import SimpleEnv
     
     # Define the environment
     env = SimpleEnv(XML_PATH, seed=SEED, state_type='joint_angle')

@@ -9,10 +9,15 @@ The model will control a robot to perform the pick and place task that it was tr
 """
 
 import os
+import sys
+
+# Add the project root directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import torch
 from lerobot.model.act import ACTPolicy
-from mujoco_env.y_env import SimpleEnv
+# Import mujoco_env components inside the functions
 
 
 def load_policy(ckpt_dir):
@@ -85,6 +90,9 @@ def main():
     # Configuration
     XML_PATH = './asset/example_scene_y.xml'
     CKPT_DIR = "./ckpt/act_y"  # Path to saved model checkpoints
+    
+    # Import mujoco_env components here to avoid immediate import
+    from mujoco_env.y_env import SimpleEnv
     
     # Initialize the environment
     env = SimpleEnv(XML_PATH, seed=0, state_type='joint_angle')
