@@ -1,13 +1,20 @@
 import sys
 import random
 import numpy as np
-import xml.etree.ElementTree as ET
-from mujoco_env.mujoco_parser import MuJoCoParserClass
-from mujoco_env.utils import prettify, sample_xyzs, rotation_matrix
-from mujoco_env.ik import solve_ik
-from mujoco_env.transforms import rpy2r, r2rpy
-import os
 import copy
+
+# Try absolute imports first, then fallback to relative imports
+try:
+    from mujoco_env.mujoco_parser import MuJoCoParserClass
+    from mujoco_env.utils import prettify, sample_xyzs, rotation_matrix
+    from mujoco_env.ik import solve_ik
+    from mujoco_env.transforms import rpy2r, r2rpy
+except ImportError:
+    # Fallback to relative imports
+    from .mujoco_parser import MuJoCoParserClass
+    from .utils import prettify, sample_xyzs, rotation_matrix
+    from .ik import solve_ik
+    from .transforms import rpy2r, r2rpy
 
 class SimpleEnv:
     def __init__(self, 
