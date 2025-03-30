@@ -10,24 +10,45 @@ from threading import Lock
 
 MUJOCO_VERSION=tuple(map(int,mujoco.__version__.split('.')))
 
-from .transforms import (
-    t2p,
-    t2r,
-    pr2t,
-    r2quat,
-    r2w,
-    rpy2r,
-    meters2xyz,
-    get_rotation_matrix_from_two_points,
-)
-from .utils import (
-    trim_scale,
-    compute_view_params,
-    get_idxs,
-    get_colors,
-    get_monitor_size,
-    TicTocClass,
-)
+try:
+    from mujoco_env.transforms import (
+        t2p,
+        t2r,
+        pr2t,
+        r2quat,
+        r2w,
+        rpy2r,
+        meters2xyz,
+        get_rotation_matrix_from_two_points,
+    )
+    from mujoco_env.utils import (
+        trim_scale,
+        compute_view_params,
+        get_idxs,
+        get_colors,
+        get_monitor_size,
+        TicTocClass,
+    )
+except ImportError:
+    # Fallback to relative imports if absolute imports fail
+    from .transforms import (
+        t2p,
+        t2r,
+        pr2t,
+        r2quat,
+        r2w,
+        rpy2r,
+        meters2xyz,
+        get_rotation_matrix_from_two_points,
+    )
+    from .utils import (
+        trim_scale,
+        compute_view_params,
+        get_idxs,
+        get_colors,
+        get_monitor_size,
+        TicTocClass,
+    )
 
 class MinimalCallbacks:
     def __init__(self, hide_menus):
