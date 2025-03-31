@@ -163,6 +163,12 @@ def evaluate_policy(policy, dataset, device, episode_index=0):
 
 def plot_results(gt_actions, pred_actions, save_dir=None):
     """Plot ground truth vs predicted actions"""
+    # GPU 텐서를 CPU로 이동 후 NumPy로 변환
+    if torch.is_tensor(gt_actions):
+        gt_actions = gt_actions.cpu().detach().numpy()
+    if torch.is_tensor(pred_actions):
+        pred_actions = pred_actions.cpu().detach().numpy()
+    
     # Plot the joint angles
     plt.figure(figsize=(12, 8))
     
