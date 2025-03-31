@@ -36,12 +36,19 @@ def load_policy(ckpt_dir):
 
 def deploy_policy(env, policy, max_steps=1000):
     """Deploy the policy in the environment"""
-    # Reset the environment
-    env.reset()
+    # 모델의 디바이스 확인
+    device = next(policy.parameters()).device
+    print(f"Model is on device: {device}")
     
-    # Convert to tensor
-    obs = env.get_ee_pose()
-    obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+    # 환경 초기화
+    env.reset()
+    policy.reset()  # 정책도 초기화
+    policy.eval()
+    
+    # 이미지 변환 설정
+    from torchvision import transforms
+    from PIL import Image
+    img_transform = transforms.ToTensor()
     
     step_count = 0
     done = False
@@ -50,28 +57,44 @@ def deploy_policy(env, policy, max_steps=1000):
         env.step_env()
         
         if env.env.loop_every(HZ=20):
-            # Get action from policy
-            with torch.no_grad():
-                action = policy.predict(obs_tensor).squeeze().numpy()
-            
-            # Apply action to environment
-            env.step(action)
-            
-            # Update observation
+            # 상태 및 이미지 획득
             obs = env.get_ee_pose()
-            obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+            image, wrist_image = env.grab_image()  # 두 이미지 반환
             
-            # Check if task is completed
+            # 이미지 전처리
+            image = Image.fromarray(image)
+            image = image.resize((256, 256))
+            image = img_transform(image)
+            
+            wrist_image = Image.fromarray(wrist_image)
+            wrist_image = wrist_image.resize((256, 256))
+            wrist_image = img_transform(wrist_image)
+            
+            # 입력 데이터 준비
+            data = {
+                'observation.state': torch.tensor([obs]).to(device),
+                'observation.image': image.unsqueeze(0).to(device),
+                'observation.wrist_image': wrist_image.unsqueeze(0).to(device),
+                'task': ['Put mug cup on the plate'],  # 태스크 설명 (필요시 변경)
+                'timestamp': torch.tensor([step_count/20]).to(device)  # 타임스탬프 추가
+            }
+            
+            # 액션 예측
+            with torch.no_grad():
+                action = policy.select_action(data)
+                action = action[0].cpu().detach().numpy()
+            
+            # 환경에 액션 적용
+            _ = env.step(action)
+            
+            # 성공 확인
             done = env.check_success()
             if done:
                 print("Task completed successfully!")
             
-            # Render the environment
             env.render()
-            
             step_count += 1
     
-    # Close the viewer
     env.env.close_viewer()
     
     return done
