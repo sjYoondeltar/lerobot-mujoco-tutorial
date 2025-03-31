@@ -161,68 +161,71 @@ def evaluate_policy(policy, dataset, device, episode_index=0):
         return None, None
 
 
-def plot_results(gt_actions, pred_actions, save_dir=None):
-    """Plot ground truth vs predicted actions"""
-    # GPU 텐서를 CPU로 이동 후 NumPy로 변환
-    if torch.is_tensor(gt_actions):
-        gt_actions = gt_actions.cpu().detach().numpy()
-    if torch.is_tensor(pred_actions):
-        pred_actions = pred_actions.cpu().detach().numpy()
+def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir: str):
+    """
+    Plot the evaluation results and save them to the specified directory.
     
-    # Plot the joint angles
-    plt.figure(figsize=(12, 8))
+    Args:
+        gt_actions: Ground truth actions
+        pred_actions: Predicted actions
+        save_dir: Directory to save plots
+    """
+    if gt_actions is None or pred_actions is None:
+        print("No actions to plot")
+        return
     
-    for i in range(6):  # 6 joint angles
-        plt.subplot(3, 2, i+1)
-        plt.plot(gt_actions[:, i], label='Ground Truth')
-        plt.plot(pred_actions[:, i], label='Prediction')
-        plt.title(f'Joint {i+1}')
-        plt.legend()
+    # Ensure save directory exists
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"Saving plots to: {save_dir}")
+    
+    # Convert to numpy
+    gt_np = gt_actions.cpu().detach().numpy()
+    pred_np = pred_actions.cpu().detach().numpy()
+    
+    # Plot each action dimension
+    action_dim = gt_np.shape[1]
+    fig, axs = plt.subplots(action_dim, 1, figsize=(10, 2*action_dim))
+    
+    for i in range(action_dim):
+        if action_dim == 1:
+            ax = axs
+        else:
+            ax = axs[i]
+        
+        ax.plot(pred_np[:, i], label="prediction")
+        ax.plot(gt_np[:, i], label="ground truth")
+        ax.set_title(f"Action Dimension {i}")
+        ax.legend()
     
     plt.tight_layout()
-    plt.savefig('joint_predictions.png')
-    # plt.show()
+    action_plot_path = os.path.join(save_dir, 'action_comparison.png')
+    plt.savefig(action_plot_path)
+    print(f"Saved action comparison plot to: {action_plot_path}")
+    plt.close()  # Close the figure to free memory
     
-    # Plot the gripper
-    plt.figure(figsize=(6, 4))
-    plt.plot(gt_actions[:, -1], label='Ground Truth')
-    plt.plot(pred_actions[:, -1], label='Prediction')
-    plt.title('Gripper')
-    plt.legend()
-    plt.savefig('gripper_prediction.png')
-    # plt.show()
+    # Plot error heatmap
+    error = np.abs(pred_np[:, :gt_np.shape[1]] - gt_np)
+    plt.figure(figsize=(10, 6))
+    plt.imshow(error.T, aspect='auto', cmap='hot')
+    plt.colorbar(label='Absolute Error')
+    plt.xlabel('Time Step')
+    plt.ylabel('Action Dimension')
+    plt.title('Error Heatmap')
+    heatmap_path = os.path.join(save_dir, 'error_heatmap.png')
+    plt.savefig(heatmap_path)
+    print(f"Saved error heatmap to: {heatmap_path}")
+    plt.close()  # Close the figure to free memory
     
-    # Save the plots in save_dir if provided
-    if save_dir:
-        import os
-        # Assuming you have multiple plots, save each one with a descriptive name
-        plt.figure(figsize=(12, 8))
-        # Example plot 1: Action comparison
-        plt.subplot(2, 1, 1)
-        plt.plot(gt_actions[:, 0], label='Ground Truth')
-        plt.plot(pred_actions[:, 0], label='Prediction')
-        plt.legend()
-        plt.title('Action Comparison')
-        
-        # Example plot 2: Error distribution
-        plt.subplot(2, 1, 2)
-        plt.hist(np.abs(gt_actions - pred_actions).flatten(), bins=50)
-        plt.title('Error Distribution')
-        
-        # Save the combined figure
-        plt.tight_layout()
-        plt.savefig(os.path.join(save_dir, 'evaluation_results.png'))
-        
-        # You might want individual plots for each action dimension
-        action_dims = gt_actions.shape[1]
-        for i in range(action_dims):
-            plt.figure(figsize=(10, 6))
-            plt.plot(gt_actions[:, i], label='Ground Truth')
-            plt.plot(pred_actions[:, i], label='Prediction')
-            plt.legend()
-            plt.title(f'Action Dimension {i}')
-            plt.savefig(os.path.join(save_dir, f'action_dim_{i}.png'))
-            plt.close()
+    # Plot error histogram
+    plt.figure(figsize=(10, 6))
+    plt.hist(error.flatten(), bins=50)
+    plt.xlabel('Absolute Error')
+    plt.ylabel('Frequency')
+    plt.title('Error Distribution')
+    histogram_path = os.path.join(save_dir, 'error_histogram.png')
+    plt.savefig(histogram_path)
+    print(f"Saved error histogram to: {histogram_path}")
+    plt.close()  # Close the figure to free memory
 
 
 class EpisodeSampler(torch.utils.data.Sampler):
@@ -279,7 +282,7 @@ def main():
     
     # Plot evaluation results and save in CKPT_DIR
     if gt_actions is not None and pred_actions is not None:
-        plot_results(gt_actions, pred_actions, save_dir=CKPT_DIR)
+        plot_results(gt_actions, pred_actions, CKPT_DIR)
 
 
 if __name__ == "__main__":
