@@ -16,7 +16,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
 import torch
-from lerobot.model.act import ACTPolicy
+from lerobot.common.policies.act.modeling_act import ACTPolicy
 # Import mujoco_env components inside the functions
 
 
@@ -27,17 +27,8 @@ def load_policy(ckpt_dir):
         print("Please train the model first or download a pre-trained model.")
         return None
     
-    # Initialize the policy
-    policy = ACTPolicy(
-        obs_dim=6,                # End-effector pose (x, y, z, roll, pitch, yaw)
-        action_dim=7,             # 6 joint angles and 1 gripper
-        chunk_size=10,            # Temporally abstract 10 actions
-        hidden_dim=128,           # Hidden dimension of the transformer
-        num_layers=2,             # Number of transformer layers
-    )
-    
-    # Load the trained weights
-    policy.load(ckpt_dir)
+    # Load the ACT policy from the checkpoint
+    policy = ACTPolicy.from_pretrained(ckpt_dir)
     print(f"Policy loaded from {ckpt_dir}")
     
     return policy
@@ -89,7 +80,7 @@ def deploy_policy(env, policy, max_steps=1000):
 def main():
     # Configuration
     XML_PATH = './asset/example_scene_y.xml'
-    CKPT_DIR = "./ckpt/act_y"  # Path to saved model checkpoints
+    CKPT_DIR = "./ckpt/act_y"  # ACT 모델 체크포인트 경로
     
     # Import mujoco_env components here to avoid immediate import
     from mujoco_env.y_env import SimpleEnv
