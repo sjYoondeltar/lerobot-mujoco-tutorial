@@ -25,6 +25,7 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.common.datasets.utils import dataset_to_policy_features
 from lerobot.configs.types import FeatureType
 from lerobot.common.policies.act.configuration_act import ACTConfig
+from lerobot.common.datasets.factory import resolve_delta_timestamps
 
 
 def create_or_load_policy(ckpt_dir, load_ckpt=False):
@@ -50,54 +51,70 @@ def create_or_load_policy(ckpt_dir, load_ckpt=False):
         print("Creating new policy")
         policy = ACTPolicy(cfg, dataset_stats=dataset_metadata.stats)
     
-    return policy
+    return policy, dataset_metadata
 
 
-def prepare_data(dataset, obs_key="observation.state", chunk_size=10):
-    """Prepare data for training"""
-    all_obs = []
-    all_actions = []
+def prepare_data(dataset_name, policy, dataset_metadata):
+    """Prepare data for training using the new API"""
+    # Policy의 config에서 delta_timestamps 해석
+    delta_timestamps = resolve_delta_timestamps(policy.config, dataset_metadata)
     
-    for episode_idx in range(dataset.num_episodes):
-        episode = dataset.get_episode(episode_idx)
-        obs = episode[obs_key]
-        actions = episode["action"]
-        
-        all_obs.append(obs)
-        all_actions.append(actions)
+    # 새 API 방식으로 데이터셋 생성
+    dataset = LeRobotDataset(
+        dataset_name, 
+        delta_timestamps=delta_timestamps, 
+        root='./demo_data'
+    )
     
-    return all_obs, all_actions
+    # 훈련용 데이터로더 생성
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        num_workers=4,
+        batch_size=64,
+        shuffle=True,
+        pin_memory=True,
+        drop_last=True,
+    )
+    
+    return dataset, dataloader
 
 
-def train_policy(policy, all_obs, all_actions, ckpt_dir, num_epochs=20000):
+def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000):
     """Train the policy on the dataset"""
-    os.makedirs(ckpt_dir, exist_ok=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    policy.train()
+    policy.to(device)
     
-    # Training loop
+    # 옵티마이저 설정
+    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
+    
+    os.makedirs(ckpt_dir, exist_ok=True)
     losses = []
     
-    start_time = time.time()
-    for epoch in range(num_epochs):
-        # Choose a random episode
-        episode_idx = np.random.randint(len(all_obs))
-        obs = torch.tensor(all_obs[episode_idx], dtype=torch.float32)
-        actions = torch.tensor(all_actions[episode_idx], dtype=torch.float32)
-        
-        # Train on the episode
-        loss = policy.train_step(obs, actions)
-        losses.append(loss)
-        
-        # Save the model checkpoint periodically
-        if (epoch + 1) % 1000 == 0:
-            policy.save(ckpt_dir)
+    # 훈련 루프
+    step = 0
+    for epoch in range(num_epochs // len(dataloader) + 1):
+        for batch in dataloader:
+            if step >= num_epochs:
+                break
+                
+            inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) 
+                         for k, v in batch.items()}
+            loss, _ = policy.forward(inp_batch)
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            losses.append(loss.item())
             
-            # Calculate time per epoch
-            time_per_epoch = (time.time() - start_time) / (epoch + 1)
-            print(f"Epoch: {epoch+1}/{num_epochs}, Loss: {loss:.8f}, "
-                  f"Time per epoch: {time_per_epoch:.6f}s")
+            if step % 100 == 0:
+                print(f"step: {step} loss: {loss.item():.4f}")
+                
+            step += 1
+            if step >= num_epochs:
+                break
     
-    # Save the final model
-    policy.save(ckpt_dir)
+    # 최종 모델 저장
+    policy.save_pretrained(ckpt_dir)
     print(f"Training completed. Model saved to {ckpt_dir}")
     
     return losses
@@ -187,23 +204,17 @@ def main():
     
     # Try to load the dataset
     try:
-        dataset = LeRobotDataset(REPO_NAME, root=ROOT)
+        policy, dataset_metadata = create_or_load_policy(CKPT_DIR, load_ckpt=False)
+        dataset, dataloader = prepare_data(REPO_NAME, policy, dataset_metadata)
         print(f"Dataset loaded with {dataset.num_episodes} episodes")
     except Exception as e:
         print(f"Failed to load dataset: {e}")
         print("Please make sure you have collected data or are using the correct path.")
         return
     
-    # Create a policy
-    policy = create_or_load_policy(CKPT_DIR, load_ckpt=False)
-    
-    # Prepare data for training
-    all_obs, all_actions = prepare_data(dataset)
-    print(f"Prepared {len(all_obs)} episodes for training")
-    
     # Train the policy
     print("Starting training...")
-    losses = train_policy(policy, all_obs, all_actions, CKPT_DIR)
+    losses = train_policy(policy, dataset, dataloader, CKPT_DIR)
     
     # Create directories if they don't exist
     if not os.path.exists(CKPT_DIR):
