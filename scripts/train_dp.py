@@ -196,25 +196,12 @@ def evaluate_policy(
     device: torch.device,
     episode_index: int = 0
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Evaluate the policy on an episode.
-    
-    Args:
-        policy: Policy to evaluate
-        dataset: Dataset to evaluate on
-        device: Device to evaluate on
-        episode_index: Episode index to evaluate on
-        
-    Returns:
-        gt_actions: Ground truth actions
-        pred_actions: Predicted actions
-    """
+    """Evaluate the policy on an episode."""
     policy.eval()
     actions = []
     gt_actions = []
-    images = []
     
-    # Set up dataloader for a specific episode
+    # 에피소드 샘플러 설정
     episode_sampler = EpisodeSampler(dataset, episode_index)
     test_dataloader = torch.utils.data.DataLoader(
         dataset,
@@ -225,23 +212,36 @@ def evaluate_policy(
         sampler=episode_sampler,
     )
     
-    # Reset policy state
     policy.reset()
-    
-    # Collect predictions
     print("Evaluating policy...")
+    
     for batch in test_dataloader:
         inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
         action = policy.select_action(inp_batch)
-        actions.append(action)
+        
+        # 디버깅 정보 출력
+        if len(actions) == 0:
+            print(f"Prediction shape: {action.shape}")
+            print(f"Ground truth shape: {inp_batch['action'].shape}")
+        
+        # 액션 저장 (첫 번째 타임스텝만)
+        if len(action.shape) == 3:  # (batch, time, action_dim)
+            actions.append(action[:, 0, :])  # 첫 번째 타임스텝만 사용
+        else:
+            actions.append(action)
+            
         gt_actions.append(inp_batch["action"][:, 0, :])
-        images.append(inp_batch["observation.image"])
     
-    # Concatenate results
     if actions:
         actions = torch.cat(actions, dim=0)
         gt_actions = torch.cat(gt_actions, dim=0)
-        print(f"Mean action error: {torch.mean(torch.abs(actions[:, :gt_actions.size(1)] - gt_actions)).item():.3f}")
+        print(f"Final shapes - Pred: {actions.shape}, GT: {gt_actions.shape}")
+        
+        # 크기가 같은지 확인하고 평균 오차 계산
+        min_dim = min(actions.size(1), gt_actions.size(1))
+        error = torch.mean(torch.abs(actions[:, :min_dim] - gt_actions[:, :min_dim])).item()
+        print(f"Mean action error: {error:.3f}")
+        
         return gt_actions, actions
     else:
         print("No actions collected during evaluation")
@@ -249,29 +249,32 @@ def evaluate_policy(
 
 
 def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir: str):
-    """
-    Plot the evaluation results.
-    
-    Args:
-        gt_actions: Ground truth actions
-        pred_actions: Predicted actions
-        save_dir: Directory to save plots
-    """
+    """Plot the evaluation results."""
     if gt_actions is None or pred_actions is None:
         print("No actions to plot")
         return
     
-    # Ensure save directory exists
-    os.makedirs(save_dir, exist_ok=True)
+    # 디렉토리 생성
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+    print(f"Saving plots to: {save_dir}")
     
-    # Convert to numpy
+    # 텐서를 numpy로 변환
     gt_np = gt_actions.cpu().detach().numpy()
     pred_np = pred_actions.cpu().detach().numpy()
     
-    # Plot each action dimension
+    # 차원 조정 (3차원인 경우 2차원으로 변환)
+    if len(pred_np.shape) == 3:
+        print(f"Reshaping predictions from {pred_np.shape} to 2D")
+        pred_np = pred_np[:, 0, :]  # 첫 번째 타임스텝만 사용
+    
+    print(f"Final shapes for plotting - Pred: {pred_np.shape}, GT: {gt_np.shape}")
+    
+    # 액션 차원 수 확인
     action_dim = gt_np.shape[1]
     fig, axs = plt.subplots(action_dim, 1, figsize=(10, 2*action_dim))
     
+    # 각 액션 차원 별로 플롯
     for i in range(action_dim):
         if action_dim == 1:
             ax = axs
@@ -284,28 +287,36 @@ def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir:
         ax.legend()
     
     plt.tight_layout()
-    plt.savefig(os.path.join(save_dir, 'action_comparison.png'))
-    plt.show()
+    action_plot_path = os.path.join(save_dir, 'action_comparison.png')
+    plt.savefig(action_plot_path)
+    print(f"Saved action comparison plot to: {action_plot_path}")
+    plt.close()
     
-    # Plot error heatmap
-    error = np.abs(pred_np[:, :gt_np.shape[1]] - gt_np)
+    # 에러 히트맵 플롯 (최소 차원까지만 비교)
+    min_dim = min(pred_np.shape[1], gt_np.shape[1])
+    error = np.abs(pred_np[:, :min_dim] - gt_np[:, :min_dim])
+    
     plt.figure(figsize=(10, 6))
     plt.imshow(error.T, aspect='auto', cmap='hot')
     plt.colorbar(label='Absolute Error')
     plt.xlabel('Time Step')
     plt.ylabel('Action Dimension')
     plt.title('Error Heatmap')
-    plt.savefig(os.path.join(save_dir, 'error_heatmap.png'))
-    plt.show()
+    heatmap_path = os.path.join(save_dir, 'error_heatmap.png')
+    plt.savefig(heatmap_path)
+    print(f"Saved error heatmap to: {heatmap_path}")
+    plt.close()
     
-    # Plot error histogram
+    # 에러 히스토그램 플롯
     plt.figure(figsize=(10, 6))
     plt.hist(error.flatten(), bins=50)
     plt.xlabel('Absolute Error')
     plt.ylabel('Frequency')
     plt.title('Error Distribution')
-    plt.savefig(os.path.join(save_dir, 'error_histogram.png'))
-    plt.show()
+    histogram_path = os.path.join(save_dir, 'error_histogram.png')
+    plt.savefig(histogram_path)
+    print(f"Saved error histogram to: {histogram_path}")
+    plt.close()
 
 
 def main():
@@ -337,7 +348,7 @@ def main():
     plt.xlabel('Training Step')
     plt.ylabel('Loss')
     plt.savefig(os.path.join(CKPT_DIR, 'training_loss.png'))
-    plt.show()
+    # plt.show()
     
     # Evaluate the policy
     gt_actions, pred_actions = evaluate_policy(policy, dataset, DEVICE)
