@@ -108,7 +108,7 @@ def evaluate_policy(policy, all_obs, all_actions):
     return gt_actions, pred_actions
 
 
-def plot_results(gt_actions, pred_actions):
+def plot_results(gt_actions, pred_actions, save_dir=None):
     """Plot ground truth vs predicted actions"""
     # Plot the joint angles
     plt.figure(figsize=(12, 8))
@@ -132,6 +132,38 @@ def plot_results(gt_actions, pred_actions):
     plt.legend()
     plt.savefig('gripper_prediction.png')
     plt.show()
+    
+    # Save the plots in save_dir if provided
+    if save_dir:
+        import os
+        # Assuming you have multiple plots, save each one with a descriptive name
+        plt.figure(figsize=(12, 8))
+        # Example plot 1: Action comparison
+        plt.subplot(2, 1, 1)
+        plt.plot(gt_actions[:, 0], label='Ground Truth')
+        plt.plot(pred_actions[:, 0], label='Prediction')
+        plt.legend()
+        plt.title('Action Comparison')
+        
+        # Example plot 2: Error distribution
+        plt.subplot(2, 1, 2)
+        plt.hist(np.abs(gt_actions - pred_actions).flatten(), bins=50)
+        plt.title('Error Distribution')
+        
+        # Save the combined figure
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, 'evaluation_results.png'))
+        
+        # You might want individual plots for each action dimension
+        action_dims = gt_actions.shape[1]
+        for i in range(action_dims):
+            plt.figure(figsize=(10, 6))
+            plt.plot(gt_actions[:, i], label='Ground Truth')
+            plt.plot(pred_actions[:, i], label='Prediction')
+            plt.legend()
+            plt.title(f'Action Dimension {i}')
+            plt.savefig(os.path.join(save_dir, f'action_dim_{i}.png'))
+            plt.close()
 
 
 def main():
@@ -160,21 +192,25 @@ def main():
     print("Starting training...")
     losses = train_policy(policy, all_obs, all_actions, CKPT_DIR)
     
-    # Plot training loss
+    # Create directories if they don't exist
+    if not os.path.exists(CKPT_DIR):
+        os.makedirs(CKPT_DIR, exist_ok=True)
+    
+    # Plot training loss and save in CKPT_DIR
     plt.figure(figsize=(10, 6))
     plt.plot(losses)
     plt.title('Training Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.savefig('training_loss.png')
+    plt.savefig(os.path.join(CKPT_DIR, 'training_loss.png'))
     plt.show()
     
     # Evaluate the policy
     print("Evaluating policy...")
     gt_actions, pred_actions = evaluate_policy(policy, all_obs, all_actions)
     
-    # Plot evaluation results
-    plot_results(gt_actions, pred_actions)
+    # Plot evaluation results and save in CKPT_DIR
+    plot_results(gt_actions, pred_actions, save_dir=CKPT_DIR)
 
 
 if __name__ == "__main__":
