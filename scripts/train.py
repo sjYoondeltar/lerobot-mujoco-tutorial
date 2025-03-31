@@ -120,22 +120,45 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000):
     return losses
 
 
-def evaluate_policy(policy, all_obs, all_actions):
+def evaluate_policy(policy, dataset, device, episode_index=0):
     """Evaluate the policy on the dataset"""
-    episode_idx = 0  # Evaluate on the first episode
+    policy.eval()
+    actions = []
+    gt_actions = []
+    images = []
     
-    obs = torch.tensor(all_obs[episode_idx], dtype=torch.float32)
-    gt_actions = torch.tensor(all_actions[episode_idx], dtype=torch.float32)
+    # Create an episode sampler to sample frames from a specific episode
+    episode_sampler = EpisodeSampler(dataset, episode_index)
+    test_dataloader = torch.utils.data.DataLoader(
+        dataset,
+        num_workers=4,
+        batch_size=1,
+        shuffle=False,
+        pin_memory=device.type != "cpu",
+        sampler=episode_sampler,
+    )
     
-    # Get policy predictions
-    with torch.no_grad():
-        pred_actions = policy.predict_chunk(obs)
+    # Reset policy state
+    policy.reset()
     
-    # Convert to numpy for plotting
-    gt_actions = gt_actions.numpy()
-    pred_actions = pred_actions.numpy()
+    # Collect predictions
+    print("Evaluating policy...")
+    for batch in test_dataloader:
+        inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
+        action = policy.select_action(inp_batch)
+        actions.append(action)
+        gt_actions.append(inp_batch["action"][:, 0, :])
+        images.append(inp_batch["observation.image"] if "observation.image" in inp_batch else None)
     
-    return gt_actions, pred_actions
+    # Concatenate results
+    if actions:
+        actions = torch.cat(actions, dim=0)
+        gt_actions = torch.cat(gt_actions, dim=0)
+        print(f"Mean action error: {torch.mean(torch.abs(actions[:, :gt_actions.size(1)] - gt_actions)).item():.3f}")
+        return gt_actions, actions
+    else:
+        print("No actions collected during evaluation")
+        return None, None
 
 
 def plot_results(gt_actions, pred_actions, save_dir=None):
@@ -196,6 +219,20 @@ def plot_results(gt_actions, pred_actions, save_dir=None):
             plt.close()
 
 
+class EpisodeSampler(torch.utils.data.Sampler):
+    """Sample frames from a specific episode"""
+    def __init__(self, dataset: LeRobotDataset, episode_index: int):
+        from_idx = dataset.episode_data_index["from"][episode_index].item()
+        to_idx = dataset.episode_data_index["to"][episode_index].item()
+        self.frame_ids = range(from_idx, to_idx)
+
+    def __iter__(self):
+        return iter(self.frame_ids)
+
+    def __len__(self) -> int:
+        return len(self.frame_ids)
+
+
 def main():
     # Configuration
     REPO_NAME = 'omy_pnp'
@@ -231,10 +268,12 @@ def main():
     
     # Evaluate the policy
     print("Evaluating policy...")
-    gt_actions, pred_actions = evaluate_policy(policy, all_obs, all_actions)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_index=0)
     
     # Plot evaluation results and save in CKPT_DIR
-    plot_results(gt_actions, pred_actions, save_dir=CKPT_DIR)
+    if gt_actions is not None and pred_actions is not None:
+        plot_results(gt_actions, pred_actions, save_dir=CKPT_DIR)
 
 
 if __name__ == "__main__":
