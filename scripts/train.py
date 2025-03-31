@@ -181,7 +181,7 @@ def plot_results(gt_actions, pred_actions, save_dir=None):
     
     plt.tight_layout()
     plt.savefig('joint_predictions.png')
-    plt.show()
+    # plt.show()
     
     # Plot the gripper
     plt.figure(figsize=(6, 4))
@@ -190,7 +190,7 @@ def plot_results(gt_actions, pred_actions, save_dir=None):
     plt.title('Gripper')
     plt.legend()
     plt.savefig('gripper_prediction.png')
-    plt.show()
+    # plt.show()
     
     # Save the plots in save_dir if provided
     if save_dir:
@@ -270,7 +270,7 @@ def main():
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.savefig(os.path.join(CKPT_DIR, 'training_loss.png'))
-    plt.show()
+    # plt.show()
     
     # Evaluate the policy
     print("Evaluating policy...")
