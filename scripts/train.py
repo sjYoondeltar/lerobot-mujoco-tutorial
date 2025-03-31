@@ -19,119 +19,227 @@ import numpy as np
 import time
 import torch
 import matplotlib.pyplot as plt
-from lerobot.model.act import ACTPolicy
+from lerobot.common.policies.act.modeling_act import ACTPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from lerobot.common.datasets.utils import dataset_to_policy_features
+from lerobot.configs.types import FeatureType
+from lerobot.common.policies.act.configuration_act import ACTConfig
+from lerobot.common.datasets.factory import resolve_delta_timestamps
 
 
 def create_or_load_policy(ckpt_dir, load_ckpt=False):
     """Create a new policy or load from checkpoint"""
-    policy = ACTPolicy(
-        obs_dim=6,                # End-effector pose (x, y, z, roll, pitch, yaw)
-        action_dim=7,             # 6 joint angles and 1 gripper
-        chunk_size=10,            # Temporally abstract 10 actions
-        hidden_dim=128,           # Hidden dimension of the transformer
-        num_layers=2,             # Number of transformer layers
+    dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+    features = dataset_to_policy_features(dataset_metadata.features)
+    output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+    input_features = {key: ft for key, ft in features.items() if key not in output_features}
+    input_features.pop("observation.wrist_image")
+
+    # 새로운 API 방식으로 설정
+    cfg = ACTConfig(
+        input_features=input_features, 
+        output_features=output_features, 
+        chunk_size=10, 
+        n_action_steps=10
     )
     
     if load_ckpt and os.path.exists(ckpt_dir):
-        policy.load(ckpt_dir)
-        print(f"Loaded policy from {ckpt_dir}")
+        print(f"Loading policy from {ckpt_dir}")
+        policy = ACTPolicy.from_pretrained(ckpt_dir)
+    else:
+        print("Creating new policy")
+        policy = ACTPolicy(cfg, dataset_stats=dataset_metadata.stats)
     
-    return policy
+    return policy, dataset_metadata
 
 
-def prepare_data(dataset, obs_key="observation.state", chunk_size=10):
-    """Prepare data for training"""
-    all_obs = []
-    all_actions = []
+def prepare_data(dataset_name, policy, dataset_metadata):
+    """Prepare data for training using the new API"""
+    # Policy의 config에서 delta_timestamps 해석
+    delta_timestamps = resolve_delta_timestamps(policy.config, dataset_metadata)
     
-    for episode_idx in range(dataset.num_episodes):
-        episode = dataset.get_episode(episode_idx)
-        obs = episode[obs_key]
-        actions = episode["action"]
-        
-        all_obs.append(obs)
-        all_actions.append(actions)
+    # 새 API 방식으로 데이터셋 생성
+    dataset = LeRobotDataset(
+        dataset_name, 
+        delta_timestamps=delta_timestamps, 
+        root='./demo_data'
+    )
     
-    return all_obs, all_actions
+    # 훈련용 데이터로더 생성
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        num_workers=4,
+        batch_size=64,
+        shuffle=True,
+        pin_memory=True,
+        drop_last=True,
+    )
+    
+    return dataset, dataloader
 
 
-def train_policy(policy, all_obs, all_actions, ckpt_dir, num_epochs=20000):
+def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000):
     """Train the policy on the dataset"""
-    os.makedirs(ckpt_dir, exist_ok=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    policy.train()
+    policy.to(device)
     
-    # Training loop
+    # 옵티마이저 설정
+    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
+    
+    os.makedirs(ckpt_dir, exist_ok=True)
     losses = []
     
-    start_time = time.time()
-    for epoch in range(num_epochs):
-        # Choose a random episode
-        episode_idx = np.random.randint(len(all_obs))
-        obs = torch.tensor(all_obs[episode_idx], dtype=torch.float32)
-        actions = torch.tensor(all_actions[episode_idx], dtype=torch.float32)
-        
-        # Train on the episode
-        loss = policy.train_step(obs, actions)
-        losses.append(loss)
-        
-        # Save the model checkpoint periodically
-        if (epoch + 1) % 1000 == 0:
-            policy.save(ckpt_dir)
+    # 훈련 루프
+    step = 0
+    for epoch in range(num_epochs // len(dataloader) + 1):
+        for batch in dataloader:
+            if step >= num_epochs:
+                break
+                
+            inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) 
+                         for k, v in batch.items()}
+            loss, _ = policy.forward(inp_batch)
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            losses.append(loss.item())
             
-            # Calculate time per epoch
-            time_per_epoch = (time.time() - start_time) / (epoch + 1)
-            print(f"Epoch: {epoch+1}/{num_epochs}, Loss: {loss:.8f}, "
-                  f"Time per epoch: {time_per_epoch:.6f}s")
+            if step % 100 == 0:
+                print(f"step: {step} loss: {loss.item():.4f}")
+                
+            step += 1
+            if step >= num_epochs:
+                break
     
-    # Save the final model
-    policy.save(ckpt_dir)
+    # 최종 모델 저장
+    policy.save_pretrained(ckpt_dir)
     print(f"Training completed. Model saved to {ckpt_dir}")
     
     return losses
 
 
-def evaluate_policy(policy, all_obs, all_actions):
+def evaluate_policy(policy, dataset, device, episode_index=0):
     """Evaluate the policy on the dataset"""
-    episode_idx = 0  # Evaluate on the first episode
+    policy.eval()
+    actions = []
+    gt_actions = []
+    images = []
     
-    obs = torch.tensor(all_obs[episode_idx], dtype=torch.float32)
-    gt_actions = torch.tensor(all_actions[episode_idx], dtype=torch.float32)
+    # Create an episode sampler to sample frames from a specific episode
+    episode_sampler = EpisodeSampler(dataset, episode_index)
+    test_dataloader = torch.utils.data.DataLoader(
+        dataset,
+        num_workers=4,
+        batch_size=1,
+        shuffle=False,
+        pin_memory=device.type != "cpu",
+        sampler=episode_sampler,
+    )
     
-    # Get policy predictions
-    with torch.no_grad():
-        pred_actions = policy.predict_chunk(obs)
+    # Reset policy state
+    policy.reset()
     
-    # Convert to numpy for plotting
-    gt_actions = gt_actions.numpy()
-    pred_actions = pred_actions.numpy()
+    # Collect predictions
+    print("Evaluating policy...")
+    for batch in test_dataloader:
+        inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
+        action = policy.select_action(inp_batch)
+        actions.append(action)
+        gt_actions.append(inp_batch["action"][:, 0, :])
+        images.append(inp_batch["observation.image"] if "observation.image" in inp_batch else None)
     
-    return gt_actions, pred_actions
+    # Concatenate results
+    if actions:
+        actions = torch.cat(actions, dim=0)
+        gt_actions = torch.cat(gt_actions, dim=0)
+        print(f"Mean action error: {torch.mean(torch.abs(actions[:, :gt_actions.size(1)] - gt_actions)).item():.3f}")
+        return gt_actions, actions
+    else:
+        print("No actions collected during evaluation")
+        return None, None
 
 
-def plot_results(gt_actions, pred_actions):
-    """Plot ground truth vs predicted actions"""
-    # Plot the joint angles
-    plt.figure(figsize=(12, 8))
+def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir: str):
+    """
+    Plot the evaluation results and save them to the specified directory.
     
-    for i in range(6):  # 6 joint angles
-        plt.subplot(3, 2, i+1)
-        plt.plot(gt_actions[:, i], label='Ground Truth')
-        plt.plot(pred_actions[:, i], label='Prediction')
-        plt.title(f'Joint {i+1}')
-        plt.legend()
+    Args:
+        gt_actions: Ground truth actions
+        pred_actions: Predicted actions
+        save_dir: Directory to save plots
+    """
+    if gt_actions is None or pred_actions is None:
+        print("No actions to plot")
+        return
+    
+    # Ensure save directory exists
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"Saving plots to: {save_dir}")
+    
+    # Convert to numpy
+    gt_np = gt_actions.cpu().detach().numpy()
+    pred_np = pred_actions.cpu().detach().numpy()
+    
+    # Plot each action dimension
+    action_dim = gt_np.shape[1]
+    fig, axs = plt.subplots(action_dim, 1, figsize=(10, 2*action_dim))
+    
+    for i in range(action_dim):
+        if action_dim == 1:
+            ax = axs
+        else:
+            ax = axs[i]
+        
+        ax.plot(pred_np[:, i], label="prediction")
+        ax.plot(gt_np[:, i], label="ground truth")
+        ax.set_title(f"Action Dimension {i}")
+        ax.legend()
     
     plt.tight_layout()
-    plt.savefig('joint_predictions.png')
-    plt.show()
+    action_plot_path = os.path.join(save_dir, 'action_comparison.png')
+    plt.savefig(action_plot_path)
+    print(f"Saved action comparison plot to: {action_plot_path}")
+    plt.close()  # Close the figure to free memory
     
-    # Plot the gripper
-    plt.figure(figsize=(6, 4))
-    plt.plot(gt_actions[:, -1], label='Ground Truth')
-    plt.plot(pred_actions[:, -1], label='Prediction')
-    plt.title('Gripper')
-    plt.legend()
-    plt.savefig('gripper_prediction.png')
-    plt.show()
+    # Plot error heatmap
+    error = np.abs(pred_np[:, :gt_np.shape[1]] - gt_np)
+    plt.figure(figsize=(10, 6))
+    plt.imshow(error.T, aspect='auto', cmap='hot')
+    plt.colorbar(label='Absolute Error')
+    plt.xlabel('Time Step')
+    plt.ylabel('Action Dimension')
+    plt.title('Error Heatmap')
+    heatmap_path = os.path.join(save_dir, 'error_heatmap.png')
+    plt.savefig(heatmap_path)
+    print(f"Saved error heatmap to: {heatmap_path}")
+    plt.close()  # Close the figure to free memory
+    
+    # Plot error histogram
+    plt.figure(figsize=(10, 6))
+    plt.hist(error.flatten(), bins=50)
+    plt.xlabel('Absolute Error')
+    plt.ylabel('Frequency')
+    plt.title('Error Distribution')
+    histogram_path = os.path.join(save_dir, 'error_histogram.png')
+    plt.savefig(histogram_path)
+    print(f"Saved error histogram to: {histogram_path}")
+    plt.close()  # Close the figure to free memory
+
+
+class EpisodeSampler(torch.utils.data.Sampler):
+    """Sample frames from a specific episode"""
+    def __init__(self, dataset: LeRobotDataset, episode_index: int):
+        from_idx = dataset.episode_data_index["from"][episode_index].item()
+        to_idx = dataset.episode_data_index["to"][episode_index].item()
+        self.frame_ids = range(from_idx, to_idx)
+
+    def __iter__(self):
+        return iter(self.frame_ids)
+
+    def __len__(self) -> int:
+        return len(self.frame_ids)
 
 
 def main():
@@ -142,39 +250,39 @@ def main():
     
     # Try to load the dataset
     try:
-        dataset = LeRobotDataset(REPO_NAME, root=ROOT)
+        policy, dataset_metadata = create_or_load_policy(CKPT_DIR, load_ckpt=False)
+        dataset, dataloader = prepare_data(REPO_NAME, policy, dataset_metadata)
         print(f"Dataset loaded with {dataset.num_episodes} episodes")
     except Exception as e:
         print(f"Failed to load dataset: {e}")
         print("Please make sure you have collected data or are using the correct path.")
         return
     
-    # Create a policy
-    policy = create_or_load_policy(CKPT_DIR, load_ckpt=False)
-    
-    # Prepare data for training
-    all_obs, all_actions = prepare_data(dataset)
-    print(f"Prepared {len(all_obs)} episodes for training")
-    
     # Train the policy
     print("Starting training...")
-    losses = train_policy(policy, all_obs, all_actions, CKPT_DIR)
+    losses = train_policy(policy, dataset, dataloader, CKPT_DIR)
     
-    # Plot training loss
+    # Create directories if they don't exist
+    if not os.path.exists(CKPT_DIR):
+        os.makedirs(CKPT_DIR, exist_ok=True)
+    
+    # Plot training loss and save in CKPT_DIR
     plt.figure(figsize=(10, 6))
     plt.plot(losses)
     plt.title('Training Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.savefig('training_loss.png')
-    plt.show()
+    plt.savefig(os.path.join(CKPT_DIR, 'training_loss.png'))
+    # plt.show()
     
     # Evaluate the policy
     print("Evaluating policy...")
-    gt_actions, pred_actions = evaluate_policy(policy, all_obs, all_actions)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_index=0)
     
-    # Plot evaluation results
-    plot_results(gt_actions, pred_actions)
+    # Plot evaluation results and save in CKPT_DIR
+    if gt_actions is not None and pred_actions is not None:
+        plot_results(gt_actions, pred_actions, CKPT_DIR)
 
 
 if __name__ == "__main__":
