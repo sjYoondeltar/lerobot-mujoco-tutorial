@@ -19,23 +19,36 @@ import numpy as np
 import time
 import torch
 import matplotlib.pyplot as plt
-from lerobot.model.act import ACTPolicy
+from lerobot.common.policies.act.modeling_act import ACTPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from lerobot.common.datasets.utils import dataset_to_policy_features
+from lerobot.configs.types import FeatureType
+from lerobot.common.policies.act.configuration_act import ACTConfig
 
 
 def create_or_load_policy(ckpt_dir, load_ckpt=False):
     """Create a new policy or load from checkpoint"""
-    policy = ACTPolicy(
-        obs_dim=6,                # End-effector pose (x, y, z, roll, pitch, yaw)
-        action_dim=7,             # 6 joint angles and 1 gripper
-        chunk_size=10,            # Temporally abstract 10 actions
-        hidden_dim=128,           # Hidden dimension of the transformer
-        num_layers=2,             # Number of transformer layers
+    dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+    features = dataset_to_policy_features(dataset_metadata.features)
+    output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+    input_features = {key: ft for key, ft in features.items() if key not in output_features}
+    input_features.pop("observation.wrist_image")
+
+    # 새로운 API 방식으로 설정
+    cfg = ACTConfig(
+        input_features=input_features, 
+        output_features=output_features, 
+        chunk_size=10, 
+        n_action_steps=10
     )
     
     if load_ckpt and os.path.exists(ckpt_dir):
-        policy.load(ckpt_dir)
-        print(f"Loaded policy from {ckpt_dir}")
+        print(f"Loading policy from {ckpt_dir}")
+        policy = ACTPolicy.from_pretrained(ckpt_dir)
+    else:
+        print("Creating new policy")
+        policy = ACTPolicy(cfg, dataset_stats=dataset_metadata.stats)
     
     return policy
 
