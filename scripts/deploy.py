@@ -16,7 +16,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
 import torch
-from lerobot.model.act import ACTPolicy
+from PIL import Image
+import torchvision
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
+from lerobot.common.policies.act.configuration_act import ACTConfig
+from lerobot.common.policies.act.modeling_act import ACTPolicy
+from lerobot.configs.types import FeatureType
+from lerobot.common.datasets.factory import resolve_delta_timestamps
+from lerobot.common.datasets.utils import dataset_to_policy_features, write_json, serialize_dict
 # Import mujoco_env components inside the functions
 
 
@@ -27,61 +34,107 @@ def load_policy(ckpt_dir):
         print("Please train the model first or download a pre-trained model.")
         return None
     
-    # Initialize the policy
-    policy = ACTPolicy(
-        obs_dim=6,                # End-effector pose (x, y, z, roll, pitch, yaw)
-        action_dim=7,             # 6 joint angles and 1 gripper
-        chunk_size=10,            # Temporally abstract 10 actions
-        hidden_dim=128,           # Hidden dimension of the transformer
-        num_layers=2,             # Number of transformer layers
+    # Get dataset metadata and prepare features
+    dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+    features = dataset_to_policy_features(dataset_metadata.features)
+    output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+    input_features = {key: ft for key, ft in features.items() if key not in output_features}
+    input_features.pop("observation.wrist_image")
+    
+    # Create ACT config
+    cfg = ACTConfig(
+        input_features=input_features, 
+        output_features=output_features, 
+        chunk_size=10, 
+        n_action_steps=1, 
+        temporal_ensemble_coeff=0.9
     )
     
-    # Load the trained weights
-    policy.load(ckpt_dir)
-    print(f"Policy loaded from {ckpt_dir}")
+    # Resolve delta timestamps
+    delta_timestamps = resolve_delta_timestamps(cfg, dataset_metadata)
+    
+    # Load the ACT policy from the checkpoint with config and dataset stats
+    policy = ACTPolicy.from_pretrained(
+        ckpt_dir, 
+        config=cfg, 
+        dataset_stats=dataset_metadata.stats
+    )
+    
+    # Move to appropriate device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    policy.to(device)
+    
+    print(f"Policy loaded from {ckpt_dir} to {device}")
     
     return policy
 
 
-def deploy_policy(env, policy, max_steps=1000):
+def deploy_policy(PnPEnv, policy, max_steps=1000):
     """Deploy the policy in the environment"""
-    # Reset the environment
-    env.reset()
+    # 모델의 디바이스 확인
+    device = "cuda"
+    print(f"Model is on device: {device}")
     
-    # Convert to tensor
-    obs = env.get_ee_pose()
-    obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+    # 환경 초기화
+    PnPEnv.reset(seed=0)
+    policy.reset()  # 정책도 초기화
+    policy.eval()
+    
+    # 이미지 변환 설정
+    img_transform = torchvision.transforms.ToTensor()
     
     step_count = 0
     done = False
     
-    while env.env.is_viewer_alive() and step_count < max_steps and not done:
-        env.step_env()
+    while PnPEnv.env.is_viewer_alive() and step_count < max_steps and not done:
+        PnPEnv.step_env()
         
-        if env.env.loop_every(HZ=20):
-            # Get action from policy
-            with torch.no_grad():
-                action = policy.predict(obs_tensor).squeeze().numpy()
+        if PnPEnv.env.loop_every(HZ=20):
+            # 상태 및 이미지 획득
+            state = PnPEnv.get_ee_pose()
+            print(f"State: {state}")
+            print(f"step count: {step_count}")
+            image, wrist_image = PnPEnv.grab_image()  # 두 이미지 반환
             
-            # Apply action to environment
-            env.step(action)
+            # 이미지 전처리
+            image = Image.fromarray(image)
+            image = image.resize((256, 256))
+            image = img_transform(image)
             
-            # Update observation
-            obs = env.get_ee_pose()
-            obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+            wrist_image = Image.fromarray(wrist_image)
+            wrist_image = wrist_image.resize((256, 256))
+            wrist_image = img_transform(wrist_image)
             
-            # Check if task is completed
-            done = env.check_success()
+            # 입력 데이터 준비
+            data = {
+                'observation.state': torch.tensor([state]).to(device),
+                'observation.image': image.unsqueeze(0).to(device),
+                'observation.wrist_image': wrist_image.unsqueeze(0).to(device),
+                'task': ['Put mug cup on the plate'],  # 태스크 설명 (필요시 변경)
+                'timestamp': torch.tensor([step_count/20]).to(device)  # 타임스탬프 추가
+            }
+            
+            # 액션 예측
+            action = policy.select_action(data)
+            action = action[0].cpu().detach().numpy()
+            
+            # 환경에 액션 적용
+            _ = PnPEnv.step(action)
+            
+            PnPEnv.render()
+            step_count += 1
+            
+            # 성공 확인
+            done = PnPEnv.check_success()
             if done:
                 print("Task completed successfully!")
-            
-            # Render the environment
-            env.render()
-            
-            step_count += 1
+                # Reset the environment and action queue
+                policy.reset()
+                PnPEnv.reset(seed=0)
+                step_count = 0
+                break
     
-    # Close the viewer
-    env.env.close_viewer()
+    PnPEnv.env.close_viewer()
     
     return done
 
@@ -89,13 +142,13 @@ def deploy_policy(env, policy, max_steps=1000):
 def main():
     # Configuration
     XML_PATH = './asset/example_scene_y.xml'
-    CKPT_DIR = "./ckpt/act_y"  # Path to saved model checkpoints
+    CKPT_DIR = "./ckpt/act_y"  # ACT 모델 체크포인트 경로
     
     # Import mujoco_env components here to avoid immediate import
     from mujoco_env.y_env import SimpleEnv
     
     # Initialize the environment
-    env = SimpleEnv(XML_PATH, seed=0, state_type='joint_angle')
+    PnPEnv = SimpleEnv(XML_PATH, seed=0, state_type='joint_angle')
     
     # Load policy
     policy = load_policy(CKPT_DIR)
@@ -104,7 +157,7 @@ def main():
     
     # Deploy policy
     print("Deploying policy in simulation...")
-    success = deploy_policy(env, policy)
+    success = deploy_policy(PnPEnv, policy)
     
     if not success:
         print("Task was not completed within the time limit.")
