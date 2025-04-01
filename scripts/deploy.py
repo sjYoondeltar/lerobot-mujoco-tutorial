@@ -69,14 +69,14 @@ def load_policy(ckpt_dir):
     return policy
 
 
-def deploy_policy(PnPEnv, policy, max_steps=1000):
+def deploy_policy(learning_env, policy, max_steps=1000):
     """Deploy the policy in the environment"""
     # 모델의 디바이스 확인
     device = "cuda"
     print(f"Model is on device: {device}")
     
     # 환경 초기화
-    PnPEnv.reset(seed=0)
+    learning_env.reset(seed=0)
     policy.reset()  # 정책도 초기화
     policy.eval()
     
@@ -86,15 +86,15 @@ def deploy_policy(PnPEnv, policy, max_steps=1000):
     step_count = 0
     done = False
     
-    while PnPEnv.env.is_viewer_alive() and step_count < max_steps and not done:
-        PnPEnv.step_env()
+    while learning_env.env.is_viewer_alive() and step_count < max_steps and not done:
+        learning_env.step_env()
         
-        if PnPEnv.env.loop_every(HZ=20):
+        if learning_env.env.loop_every(HZ=1):
             # 상태 및 이미지 획득
-            state = PnPEnv.get_ee_pose()
+            state = learning_env.get_ee_pose()
             print(f"State: {state}")
             print(f"step count: {step_count}")
-            image, wrist_image = PnPEnv.grab_image()  # 두 이미지 반환
+            image, wrist_image = learning_env.grab_image()  # 두 이미지 반환
             
             # 이미지 전처리
             image = Image.fromarray(image)
@@ -119,22 +119,22 @@ def deploy_policy(PnPEnv, policy, max_steps=1000):
             action = action[0].cpu().detach().numpy()
             
             # 환경에 액션 적용
-            _ = PnPEnv.step(action)
+            _ = learning_env.step(action)
             
-            PnPEnv.render()
+            learning_env.render()
             step_count += 1
             
             # 성공 확인
-            done = PnPEnv.check_success()
+            done = learning_env.check_success()
             if done:
                 print("Task completed successfully!")
                 # Reset the environment and action queue
                 policy.reset()
-                PnPEnv.reset(seed=0)
+                learning_env.reset(seed=0)
                 step_count = 0
                 break
     
-    PnPEnv.env.close_viewer()
+    learning_env.env.close_viewer()
     
     return done
 
@@ -148,7 +148,7 @@ def main():
     from mujoco_env.y_env import SimpleEnv
     
     # Initialize the environment
-    PnPEnv = SimpleEnv(XML_PATH, seed=0, state_type='joint_angle')
+    pnp_env = SimpleEnv(XML_PATH, seed=0, state_type='joint_angle')
     
     # Load policy
     policy = load_policy(CKPT_DIR)
@@ -157,7 +157,7 @@ def main():
     
     # Deploy policy
     print("Deploying policy in simulation...")
-    success = deploy_policy(PnPEnv, policy)
+    success = deploy_policy(pnp_env, policy)
     
     if not success:
         print("Task was not completed within the time limit.")
