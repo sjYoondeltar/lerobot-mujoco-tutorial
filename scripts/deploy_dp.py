@@ -274,8 +274,8 @@ def visualize_actions(action_trajectory):
     plt.show()
     
     # Save the plot
-    print("Saving action plot to ./ckpt/diffusion_y/deployment_actions.png")
-    plt.savefig('./ckpt/diffusion_y/deployment_actions.png')
+    print("Saving action plot to ckpt/diffusion_y/deployment_actions.png")
+    plt.savefig('ckpt/diffusion_y/deployment_actions.png')
     plt.close()
 
 if __name__ == "__main__":
