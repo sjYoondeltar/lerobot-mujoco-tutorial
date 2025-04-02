@@ -31,14 +31,14 @@ def main():
     features = dataset_to_policy_features(dataset_metadata.features)
     output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
-    input_features.pop("observation.wrist_image")
+    # input_features.pop("observation.wrist_image")
 
     # Configure and load the diffusion policy
     print("Configuring diffusion policy...")
     cfg = DiffusionConfig(
         input_features=input_features, 
         output_features=output_features, 
-        horizon=8,  # Must match the training configuration
+        horizon=16,  # Must match the training configuration
         n_action_steps=8
     )
 
@@ -152,12 +152,17 @@ def run_policy(policy, PnPEnv, device):
                 image = image.resize((256, 256))
                 image = img_transform(image)
                 
-                # Prepare input data for the policy
+                wrist_image = Image.fromarray(wrist_image)
+                wrist_image = wrist_image.resize((256, 256))
+                wrist_image = img_transform(wrist_image)
+                
+                # 입력 데이터 준비
                 data = {
-                    'observation.state': torch.tensor([state], dtype=torch.float32).to(device),
+                    'observation.state': torch.tensor([state]).to(device),
                     'observation.image': image.unsqueeze(0).to(device),
+                    'observation.wrist_image': wrist_image.unsqueeze(0).to(device),
                     'task': ['Put mug cup on the plate'],
-                    'timestamp': torch.tensor([step/20], dtype=torch.float32).to(device)
+                    'timestamp': torch.tensor([step/20]).to(device)
                 }
                 
                 # Get action from policy
