@@ -26,7 +26,7 @@ unzip plate_11.zip
 
 ## 1. Collection Demonstration Data
 
-Run [1.collect_data.ipynb](notebooks/1.collect_data.ipynb)
+Run [1.collect_data.ipynb](1.collect_data.ipynb)
 
 Collect demonstration data for the given environment.
 The task is to pick a mug and place it on the plate. The environment recognizes the success if the mug is on the plate, gthe ripper opened, and the end-effector positioned above the mug.
@@ -95,7 +95,7 @@ For convenience, we have added [Example Data](./demo_data_example/) to the repos
 
 ## 2. Playback Your Data
 
-Run [2.visualize_data.ipynb](notebooks/2.visualize_data.ipynb)
+Run [2.visualize_data.ipynb](2.visualize_data.ipynb)
 
 <img src="./media/data.gif" width="480" height="360"></img>
 
@@ -107,7 +107,7 @@ The overlayed images on the top right and bottom right are from the dataset.
 
 ## 3. Train Action-Chunking-Transformer (ACT)
 
-Run [3.train.ipynb](notebooks/3.train.ipynb)
+Run [3.train.ipynb](3.train.ipynb)
 
 **This takes around 30~60 mins**.
 
