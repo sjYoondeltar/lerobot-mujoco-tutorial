@@ -76,8 +76,8 @@ def create_or_load_policy(ckpt_dir: str, load_ckpt: bool = False) -> DiffusionPo
     cfg = DiffusionConfig(
         input_features=input_features, 
         output_features=output_features, 
-        horizon=8,  # Must be multiple of 8 due to downsampling factor
-        n_action_steps=8
+        horizon=16,  # Must be multiple of 8 due to downsampling factor
+        n_action_steps=1
     )
     
     # Create or load policy

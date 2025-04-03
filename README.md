@@ -26,7 +26,7 @@ unzip plate_11.zip
 
 ## 1. Collection Demonstration Data
 
-Run [1.collect_data.ipynb](notebooks/1.collect_data.ipynb)
+Run [1.collect_data.ipynb](1.collect_data.ipynb)
 
 Collect demonstration data for the given environment.
 The task is to pick a mug and place it on the plate. The environment recognizes the success if the mug is on the plate, gthe ripper opened, and the end-effector positioned above the mug.
@@ -95,7 +95,7 @@ For convenience, we have added [Example Data](./demo_data_example/) to the repos
 
 ## 2. Playback Your Data
 
-Run [2.visualize_data.ipynb](notebooks/2.visualize_data.ipynb)
+Run [2.visualize_data.ipynb](2.visualize_data.ipynb)
 
 <img src="./media/data.gif" width="480" height="360"></img>
 
@@ -107,7 +107,7 @@ The overlayed images on the top right and bottom right are from the dataset.
 
 ## 3. Train Action-Chunking-Transformer (ACT)
 
-Run [3.train.ipynb](notebooks/3.train.ipynb)
+Run [3.train.ipynb](3.train.ipynb)
 
 **This takes around 30~60 mins**.
 
@@ -122,13 +122,37 @@ To evaluate the policy on the dataset, you can calculate the error between groun
 
 ## 4. Deploy your Policy
 
-Run [4.deploy.ipynb](notebooks/4.deploy.ipynb)
+Instead of using a notebook, you can now deploy your trained policy (either ACT or Diffusion) using the `scripts/deploy.py` script.
 
-You can download checkpoint from [google drive](https://drive.google.com/drive/folders/1UqxqUgGPKU04DkpQqSWNgfYMhlvaiZsp?usp=sharing) if you don't have gpu to train your model.
+You can download pre-trained checkpoints from [google drive](https://drive.google.com/drive/folders/1UqxqUgGPKU04DkpQqSWNgfYMhlvaiZsp?usp=sharing) if you don't have a GPU to train your model.
+
+Use the following command structure:
+
+```bash
+python scripts/deploy.py --policy_type <type> [--ckpt_dir <path_to_checkpoint>] [--xml_path <path_to_xml>] [--max_steps <steps>] [--control_hz <hz>]
+```
+
+Arguments:
+- `--policy_type`: Required. Choose either `act` or `diffusion`.
+- `--ckpt_dir`: Optional. Path to the checkpoint directory. Defaults to `ckpt/act_y` or `ckpt/diffusion_y` based on `--policy_type`.
+- `--xml_path`: Optional. Path to the MuJoCo scene XML file. Defaults to `./asset/example_scene_y.xml`.
+- `--max_steps`: Optional. Maximum simulation steps. Defaults to `1000`.
+- `--control_hz`: Optional. Control frequency. Defaults to `20`.
+
+**Examples:**
+
+*   **Deploy ACT policy (using default checkpoint path `ckpt/act_y`):**
+    ```bash
+    python scripts/deploy.py --policy_type act
+    ```
+*   **Deploy Diffusion policy (specifying a checkpoint path):**
+    ```bash
+    python scripts/deploy.py --policy_type diffusion --ckpt_dir ./my_diffusion_checkpoint
+    ```
 
 <img src="./media/rollout.gif" width="480" height="360" controls></img>
 
-Deploy trained policy in simulation.
+The script will load the specified policy and deploy it in the MuJoCo simulation environment.
 
 ## Acknowledgements
 - The asset for the robotis-omy manipulator is from [robotis_mujoco_menagerie](https://github.com/ROBOTIS-GIT/robotis_mujoco_menagerie/tree/main).
