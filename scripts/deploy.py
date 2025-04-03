@@ -165,7 +165,7 @@ def main():
     from mujoco_env.y_env import SimpleEnv
     
     # Initialize the environment
-    pnp_env = SimpleEnv(XML_PATH, seed=0, state_type='joint_angle')
+    pnp_env = SimpleEnv(XML_PATH, seed=0, action_type='joint_angle')
     print("Environment initialized.")
     
     # Load policy
