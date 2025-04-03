@@ -75,6 +75,7 @@ def load_policy(policy_type, ckpt_dir):
 
         elif policy_type == 'diffusion':
             # input_features.pop("observation.wrist_image") # Specific adjustment if needed for Diffusion
+            input_features.pop("observation.wrist_image", None) # 학습 시 사용하지 않았으므로 배포 시에도 제외 (KeyError 방지 위해 None 추가)
             
             # Configure Diffusion policy
             print("Configuring Diffusion policy...")
@@ -82,7 +83,7 @@ def load_policy(policy_type, ckpt_dir):
                 input_features=input_features, 
                 output_features=output_features, 
                 horizon=16,  # Example Diffusion specific param (match training)
-                n_action_steps=8 # Example Diffusion specific param (match training)
+                n_action_steps=8 # Example Diffusion specific param (match training) -> 이 값도 학습(train_dp.py)과 맞춰야 합니다! train_dp.py 에서는 1 이었음
             )
 
             # Load the trained policy with robust error handling
@@ -161,9 +162,9 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
     done = False
     
     try:
-        while learning_env.env.is_viewer_alive() and step_count < max_steps and not done:
+        while learning_env.env.is_viewer_alive():
             # Step simulation physics (might not be needed depending on env step)
-            # learning_env.step_env() # Assuming learning_env.step handles physics stepping if needed
+            learning_env.step_env() # Assuming learning_env.step handles physics stepping if needed
 
             if learning_env.env.loop_every(HZ=control_hz):
                 # Get state and images
@@ -182,9 +183,9 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
                 data = {
                     'observation.state': torch.tensor([state], dtype=torch.float32).to(DEVICE),
                     'observation.image': image_tensor,
-                    'observation.wrist_image': wrist_image_tensor,
-                    # 'task': ['Put mug cup on the plate'], # Optional, depends if model uses it
-                    # 'timestamp': torch.tensor([step_count / control_hz], dtype=torch.float32).to(DEVICE) # Optional
+                    # 'observation.wrist_image': wrist_image_tensor,
+                    'task': ['Put mug cup on the plate'], # Optional, depends if model uses it
+                    'timestamp': torch.tensor([step_count / control_hz], dtype=torch.float32).to(DEVICE) # Optional
                 }
                 
                 # Predict action
@@ -194,13 +195,13 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
                     
                     if policy_type == 'act':
                         # ACT output is typically [batch_size, action_dim] or similar direct action
-                        action = action_output[0].cpu().numpy() 
+                        action = action_output[0].cpu().numpy()
                     elif policy_type == 'diffusion':
                         # Diffusion output is typically [batch, horizon, action_dim]
                         # We take the first action step of the predicted horizon
                         if isinstance(action_output, torch.Tensor) and action_output.ndim >= 2:
                              # Take first step [0] from the first batch element [0]
-                            action = action_output[0, 0].cpu().numpy() 
+                            action = action_output[0].cpu().numpy()
                         else:
                              # Handle unexpected output format
                              print(f"Warning: Unexpected diffusion action output format: {type(action_output)}, shape: {action_output.shape if hasattr(action_output, 'shape') else 'N/A'}")
@@ -219,27 +220,24 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
                 # print(f"Step: {step_count}, Action: {action}") # Verbose logging
 
                 # Apply action to environment
-                obs, reward, terminated, truncated, info = learning_env.step(action)
-                done = terminated or truncated # Use standard Gymnasium termination flags
+                _ = learning_env.step(action)
 
                 # Render
                 learning_env.render()
                 
-                # Check success condition (if available and separate from termination)
-                if hasattr(learning_env, 'check_success') and learning_env.check_success():
+                # 성공 확인
+                done = learning_env.check_success()
+                if done:
                     print(f"Task completed successfully at step {step_count}!")
-                    # Optional: reset on success if you want loops
-                    # policy.reset()
-                    # learning_env.reset(seed=0) 
-                    # step_count = 0 
-                    break # End loop on success
+                    policy.reset()
+                    learning_env.reset(seed=0)
+                    step_count = 0
+                    break
                 
                 step_count += 1
                 
         if not done and step_count >= max_steps:
             print("Task not completed: Reached maximum step limit.")
-        elif done and not (hasattr(learning_env, 'check_success') and learning_env.check_success()):
-             print(f"Task ended (terminated={terminated}, truncated={truncated}) but success condition not met.")
             
     except Exception as e:
         print(f"An error occurred during deployment: {e}")
