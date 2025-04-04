@@ -165,7 +165,7 @@ def load_policy(policy_type, ckpt_dir):
                 input_features=input_features, 
                 output_features=output_features,
                 n_obs_steps=5,
-                n_action_pred_token=3,
+                n_action_pred_token=5,  # Updated to match training config 
                 action_chunk_size=5,
                 vqvae_n_embed=1024,  # codebook size
                 vqvae_embedding_dim=128,  # latent dimension
@@ -175,38 +175,101 @@ def load_policy(policy_type, ckpt_dir):
                 gpt_n_head=8
             )
             
-            # Load the VQBeT policy
-            try:
-                policy = VQBeTPolicy.from_pretrained(
-                    ckpt_dir,
-                    config=cfg,
-                    dataset_stats=dataset_metadata.stats
-                )
-            except Exception as e:
-                print(f"Error loading VQBeT policy: {e}")
-                print("\nTrying alternate loading method...")
+            # First, create a policy instance
+            policy = VQBeTPolicy(cfg, dataset_stats=dataset_metadata.stats)
+            
+            # Check for VQ-VAE specific checkpoint
+            vqvae_ckpt_dir = os.path.join(ckpt_dir, "vqvae_only")
+            vqvae_final_path = os.path.join(vqvae_ckpt_dir, "final_model.pt")
+            
+            # Try to load VQ-VAE weights if available
+            vqvae_loaded = False
+            if os.path.exists(vqvae_final_path):
                 try:
-                    policy = VQBeTPolicy(cfg, dataset_stats=dataset_metadata.stats)
+                    print(f"Found VQ-VAE checkpoint at {vqvae_final_path}. Loading...")
+                    vqvae_ckpt = torch.load(vqvae_final_path, map_location=DEVICE)
+                    
+                    # Extract just VQ-VAE related weights
+                    vqvae_state_dict = {}
+                    full_state_dict = vqvae_ckpt['model_state_dict']
+                    
+                    # Filter for VQ-VAE related parameters only
+                    for name, param in full_state_dict.items():
+                        if any(part in name for part in ['encoder', 'decoder', 'codebook', 'quantizer', 'vqvae']):
+                            vqvae_state_dict[name] = param
+                    
+                    # Load the VQ-VAE weights (partial state dict)
+                    missing_keys, unexpected_keys = policy.load_state_dict(vqvae_state_dict, strict=False)
+                    print(f"Loaded VQ-VAE weights. Missing keys: {len(missing_keys)}, Unexpected keys: {len(unexpected_keys)}")
+                    vqvae_loaded = True
+                except Exception as e:
+                    print(f"Error loading VQ-VAE checkpoint: {e}")
+                    print("Will attempt to load full model instead.")
+            
+            # Now try to load the full model (keeping VQ-VAE weights if they were loaded)
+            try:
+                # First try standard loading method with from_pretrained
+                if not vqvae_loaded:
+                    print("Loading full VQBeT model...")
+                    policy = VQBeTPolicy.from_pretrained(
+                        ckpt_dir,
+                        config=cfg,
+                        dataset_stats=dataset_metadata.stats
+                    )
+                else:
+                    # If VQ-VAE was loaded, only load the remaining parts
+                    print("Loading full VQBeT model weights on top of VQ-VAE weights...")
+                    # Try different possible weight file locations
                     weights_path = os.path.join(ckpt_dir, "model.safetensors")
                     if not os.path.exists(weights_path):
                         weights_path = os.path.join(ckpt_dir, "pytorch_model.bin")
                         
                     if os.path.exists(weights_path):
-                        print(f"Loading weights from {weights_path}")
                         if weights_path.endswith('.safetensors'):
                             from safetensors.torch import load_file
                             state_dict = load_file(weights_path, device=str(DEVICE))
                         else:
                             state_dict = torch.load(weights_path, map_location=DEVICE)
                         
-                        policy.load_state_dict(state_dict)
-                        print("Successfully loaded model weights via alternate method.")
+                        # Load with strict=False to avoid errors with already loaded VQ-VAE weights
+                        missing_keys, unexpected_keys = policy.load_state_dict(state_dict, strict=False)
+                        print(f"Loaded full model weights. Missing keys: {len(missing_keys)}, Unexpected keys: {len(unexpected_keys)}")
                     else:
-                        print(f"Error: Weights file not found in {ckpt_dir}.")
+                        print(f"Warning: Full model weights not found at {weights_path}")
+                        if vqvae_loaded:
+                            print("Proceeding with only VQ-VAE weights loaded.")
+                        else:
+                            print("Error: No weights loaded for VQBeT model.")
+                            return None, None
+            except Exception as e:
+                print(f"Error loading full VQBeT model: {e}")
+                
+                # If VQ-VAE is already loaded, we might still be able to proceed
+                if not vqvae_loaded:
+                    print("Trying alternate loading method...")
+                    try:
+                        weights_path = os.path.join(ckpt_dir, "model.safetensors")
+                        if not os.path.exists(weights_path):
+                            weights_path = os.path.join(ckpt_dir, "pytorch_model.bin")
+                            
+                        if os.path.exists(weights_path):
+                            print(f"Loading weights from {weights_path}")
+                            if weights_path.endswith('.safetensors'):
+                                from safetensors.torch import load_file
+                                state_dict = load_file(weights_path, device=str(DEVICE))
+                            else:
+                                state_dict = torch.load(weights_path, map_location=DEVICE)
+                            
+                            policy.load_state_dict(state_dict)
+                            print("Successfully loaded model weights via alternate method.")
+                        else:
+                            print(f"Error: Weights file not found in {ckpt_dir}.")
+                            return None, None
+                    except Exception as e2:
+                        print(f"Error with alternate loading method: {e2}")
                         return None, None
-                except Exception as e2:
-                    print(f"Error with alternate loading method: {e2}")
-                    return None, None
+                else:
+                    print("Proceeding with only VQ-VAE weights loaded, as full model loading failed.")
         
         else:
             print(f"Error: Unknown policy type '{policy_type}'. Choose 'act', 'diffusion', or 'vqbet'.")
