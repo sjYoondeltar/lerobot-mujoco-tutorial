@@ -307,15 +307,6 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
                                 print(f"Detokenizing action output: {action_output}")
                                 action = policy.detokenize_action(action_output)
                                 action = action[0].cpu().numpy()  # Take first action
-                            elif hasattr(policy, 'unnormalize_outputs'):
-                                print(f"Unnormalizing action output: {action_output}")
-                                action_dict = {"action": action_output}
-                                unnormalized = policy.unnormalize_outputs(action_dict)
-                                action = unnormalized["action"].cpu().numpy()
-                                
-                                # Take first action if multiple actions returned
-                                if action.ndim > 1:
-                                    action = action[0]
                             else:
                                 # Direct handling as fallback
                                 print(f"Direct handling action output: {action_output}")
