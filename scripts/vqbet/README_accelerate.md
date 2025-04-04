@@ -1,8 +1,13 @@
 # Accelerating VQBeT Model Training with Hugging Face Accelerate
 
+[English](#english) | [한국어](#korean)
+
+<a id="english"></a>
+## English Documentation
+
 This document explains how to accelerate VQBeT model training using Hugging Face's Accelerate library.
 
-## 1. Installing Accelerate
+### 1. Installing Accelerate
 
 First, you need to install the Accelerate library:
 
@@ -20,7 +25,7 @@ pip install tensorboard
 pip install wandb
 ```
 
-## 2. Configuring Accelerate
+### 2. Configuring Accelerate
 
 If you're using Accelerate for the first time, run the following command to generate a configuration file:
 
@@ -35,7 +40,7 @@ This command provides an interactive prompt to configure your distributed traini
 - Number of processes
 - Logging options
 
-## 3. Training on a Single GPU
+### 3. Training on a Single GPU
 
 The simplest way is to run on a single GPU with the following command:
 
@@ -45,7 +50,7 @@ python scripts/train_vqbet.py
 
 The Accelerator will automatically initialize and detect a single GPU environment.
 
-## 4. Training on Multiple GPUs
+### 4. Training on Multiple GPUs
 
 To run distributed training across multiple GPUs, use the `accelerate launch` command:
 
@@ -55,7 +60,7 @@ accelerate launch scripts/train_vqbet.py
 
 This command distributes the training across multiple GPUs according to your configuration file.
 
-## 5. Advanced Configuration
+### 5. Advanced Configuration
 
 You can also specify certain configurations directly in the CLI:
 
@@ -63,7 +68,7 @@ You can also specify certain configurations directly in the CLI:
 accelerate launch --multi_gpu --mixed_precision=fp16 --num_processes=4 scripts/train_vqbet.py
 ```
 
-## 6. Code Explanation
+### 6. Code Explanation
 
 The `train_vqbet.py` script uses Accelerate as follows:
 
@@ -99,7 +104,7 @@ if accelerator.is_main_process:
     print("Log message")
 ```
 
-## 7. Checking Results
+### 7. Checking Results
 
 Training results are saved in the `./ckpt/vqbet_y/logs` directory. You can visualize the results using TensorBoard:
 
@@ -107,18 +112,23 @@ Training results are saved in the `./ckpt/vqbet_y/logs` directory. You can visua
 tensorboard --logdir=./ckpt/vqbet_y/logs
 ```
 
-## References
+### References
 
 - [Hugging Face Accelerate Documentation](https://huggingface.co/docs/accelerate/index)
 - [Accelerate GitHub Repository](https://github.com/huggingface/accelerate)
 
+[Back to top](#accelerating-vqbet-model-training-with-hugging-face-accelerate)
+
 ---
+
+<a id="korean"></a>
+## 한국어 문서
 
 # Hugging Face Accelerate로 VQBeT 모델 훈련 가속화하기
 
 이 문서는 Hugging Face의 Accelerate 라이브러리를 사용하여 VQBeT 모델 훈련을 가속화하는 방법에 대해 설명합니다.
 
-## 1. Accelerate 설치하기
+### 1. Accelerate 설치하기
 
 먼저 Accelerate 라이브러리를 설치해야 합니다:
 
@@ -136,7 +146,7 @@ pip install tensorboard
 pip install wandb
 ```
 
-## 2. Accelerate 설정하기
+### 2. Accelerate 설정하기
 
 처음 Accelerate를 사용한다면, 다음 명령어를 실행하여 설정 파일을 생성하세요:
 
@@ -151,7 +161,7 @@ accelerate config
 - 프로세스 수
 - 로깅 옵션
 
-## 3. 단일 GPU에서 훈련하기
+### 3. 단일 GPU에서 훈련하기
 
 가장 간단한 방법으로, 단일 GPU에서 다음 명령어로 실행할 수 있습니다:
 
@@ -161,7 +171,7 @@ python scripts/train_vqbet.py
 
 코드 내에서 Accelerator가 자동으로 초기화되고 단일 GPU 환경을 감지합니다.
 
-## 4. 다중 GPU에서 훈련하기
+### 4. 다중 GPU에서 훈련하기
 
 여러 GPU에서 분산 훈련을 실행하려면 `accelerate launch` 명령어를 사용하세요:
 
@@ -171,7 +181,7 @@ accelerate launch scripts/train_vqbet.py
 
 이 명령어는 설정 파일에 따라 여러 GPU에 걸쳐 훈련을 분산시킵니다.
 
-## 5. 고급 설정
+### 5. 고급 설정
 
 특정 설정을 CLI에서 직접 지정할 수도 있습니다:
 
@@ -179,7 +189,7 @@ accelerate launch scripts/train_vqbet.py
 accelerate launch --multi_gpu --mixed_precision=fp16 --num_processes=4 scripts/train_vqbet.py
 ```
 
-## 6. 코드 설명
+### 6. 코드 설명
 
 `train_vqbet.py` 스크립트는 다음과 같이 Accelerate를 사용합니다:
 
@@ -215,7 +225,7 @@ if accelerator.is_main_process:
     print("로그 메시지")
 ```
 
-## 7. 결과 확인
+### 7. 결과 확인
 
 훈련 결과는 `./ckpt/vqbet_y/logs` 디렉토리에 저장됩니다. TensorBoard를 사용하여 결과를 시각화할 수 있습니다:
 
@@ -223,7 +233,9 @@ if accelerator.is_main_process:
 tensorboard --logdir=./ckpt/vqbet_y/logs
 ```
 
-## 참고 자료
+### 참고 자료
 
 - [Hugging Face Accelerate 문서](https://huggingface.co/docs/accelerate/index)
-- [Accelerate GitHub 저장소](https://github.com/huggingface/accelerate) 
+- [Accelerate GitHub 저장소](https://github.com/huggingface/accelerate)
+
+[맨 위로](#accelerating-vqbet-model-training-with-hugging-face-accelerate) 
