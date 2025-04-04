@@ -356,6 +356,150 @@ class EpisodeSampler(torch.utils.data.Sampler):
         return len(self.frame_ids)
 
 
+def train_vqvae(policy, dataset, dataloader, ckpt_dir, num_epochs=1000):
+    """Train only the VQ-VAE part of the model first"""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    policy.train()
+    policy.to(device)
+    
+    # Setup optimizer that only updates VQ-VAE parameters
+    # First identify VQ-VAE related parameters
+    vqvae_params = []
+    for name, param in policy.named_parameters():
+        # Only select parameters from the encoder, decoder, and codebook
+        if any(part in name for part in ['encoder', 'decoder', 'codebook', 'quantizer']):
+            vqvae_params.append(param)
+            param.requires_grad = True
+        else:
+            # Freeze other parameters (transformer/GPT parts)
+            param.requires_grad = False
+    
+    # Setup optimizer for VQ-VAE params only
+    optimizer = torch.optim.Adam(vqvae_params, lr=3e-4)
+    
+    os.makedirs(ckpt_dir, exist_ok=True)
+    vqvae_ckpt_dir = os.path.join(ckpt_dir, "vqvae_only")
+    os.makedirs(vqvae_ckpt_dir, exist_ok=True)
+    
+    losses = []
+    recon_losses = []
+    vq_losses = []
+    
+    # Training loop
+    step = 0
+    best_loss = float('inf')
+    
+    print("Starting VQ-VAE pre-training...")
+    for epoch in range(num_epochs // len(dataloader) + 1):
+        for batch in dataloader:
+            if step >= num_epochs:
+                break
+                
+            inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) 
+                       for k, v in batch.items()}
+            
+            # Forward pass through VQ-VAE only
+            # We need to modify this based on how the forward method works
+            # Here we assume the forward method returns vq_loss and recon_loss as part of its output
+            try:
+                with torch.set_grad_enabled(True):
+                    # Extract actions for VQ-VAE training
+                    actions = inp_batch["action"]
+                    
+                    # Call the encoder, quantizer, and decoder parts directly if accessible
+                    if hasattr(policy, 'vqvae_forward'):
+                        loss, loss_dict = policy.vqvae_forward(actions)
+                    else:
+                        # Fallback: call regular forward but extract VQ-VAE losses
+                        loss, loss_dict = policy.forward(inp_batch)
+                        # We might need to extract just the VQ-VAE related losses
+                        if isinstance(loss_dict, dict) and 'vq_loss' in loss_dict:
+                            loss = loss_dict['vq_loss'] + loss_dict.get('reconstruction_loss', 0)
+            except Exception as e:
+                print(f"Error during VQ-VAE forward pass: {e}")
+                continue
+            
+            # Backward and optimize
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            # For tracking, get loss values
+            loss_value = loss.item()
+            losses.append(loss_value)
+            
+            # Extract component losses if available
+            if isinstance(loss_dict, dict):
+                if 'reconstruction_loss' in loss_dict:
+                    recon_losses.append(loss_dict['reconstruction_loss'].item())
+                if 'vq_loss' in loss_dict:
+                    vq_losses.append(loss_dict['vq_loss'].item())
+            
+            if step % 100 == 0:
+                recon_loss_str = f", recon_loss: {recon_losses[-1]:.4f}" if recon_losses else ""
+                vq_loss_str = f", vq_loss: {vq_losses[-1]:.4f}" if vq_losses else ""
+                print(f"VQ-VAE step: {step} loss: {loss_value:.4f}{recon_loss_str}{vq_loss_str}")
+            
+            # Save best model
+            if step % 500 == 0:
+                if loss_value < best_loss:
+                    best_loss = loss_value
+                    # Save VQ-VAE checkpoint
+                    vqvae_save_path = os.path.join(vqvae_ckpt_dir, f"model_step_{step}.pt")
+                    torch.save({
+                        'step': step,
+                        'model_state_dict': policy.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': loss_value,
+                    }, vqvae_save_path)
+                    print(f"Saved VQ-VAE checkpoint to {vqvae_save_path} (loss: {loss_value:.4f})")
+            
+            step += 1
+            if step >= num_epochs:
+                break
+    
+    # Save final VQ-VAE model
+    final_vqvae_path = os.path.join(vqvae_ckpt_dir, "final_model.pt")
+    torch.save({
+        'step': step,
+        'model_state_dict': policy.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': losses[-1] if losses else float('inf'),
+    }, final_vqvae_path)
+    print(f"VQ-VAE training completed. Final model saved to {final_vqvae_path}")
+    
+    # Plot VQ-VAE training losses
+    plt.figure(figsize=(12, 6))
+    
+    plt.subplot(1, 3, 1)
+    plt.plot(losses)
+    plt.title('Total VQ-VAE Loss')
+    plt.xlabel('Step')
+    plt.ylabel('Loss')
+    
+    if recon_losses:
+        plt.subplot(1, 3, 2)
+        plt.plot(recon_losses)
+        plt.title('Reconstruction Loss')
+        plt.xlabel('Step')
+    
+    if vq_losses:
+        plt.subplot(1, 3, 3)
+        plt.plot(vq_losses)
+        plt.title('VQ Loss')
+        plt.xlabel('Step')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(vqvae_ckpt_dir, 'vqvae_training_losses.png'))
+    plt.close()
+    
+    # Unfreeze all parameters for subsequent training
+    for param in policy.parameters():
+        param.requires_grad = True
+    
+    return policy, losses
+
+
 def main():
     # Configuration
     REPO_NAME = 'omy_pnp'
@@ -376,9 +520,13 @@ def main():
         print("Please make sure you have collected data or are using the correct path.")
         return
     
-    # Train the policy
-    print("Starting training...")
-    losses, eval_metrics = train_policy(policy, dataset, dataloader, CKPT_DIR)
+    # First, train VQ-VAE component separately
+    print("Step 1: Pre-training VQ-VAE component...")
+    policy, vqvae_losses = train_vqvae(policy, dataset, dataloader, CKPT_DIR, num_epochs=1000)
+    
+    # Then train the full VQBeT model (with pre-trained VQ-VAE)
+    print("\nStep 2: Training full VQBeT model with pre-trained VQ-VAE...")
+    losses, eval_metrics = train_policy(policy, dataset, dataloader, CKPT_DIR, num_epochs=2000)
     
     # Create directories if they don't exist
     if not os.path.exists(CKPT_DIR):
