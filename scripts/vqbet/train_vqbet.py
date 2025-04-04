@@ -55,7 +55,7 @@ def create_or_load_policy(ckpt_dir, load_ckpt=False):
         input_features=input_features, 
         output_features=output_features,
         n_obs_steps=5,
-        n_action_pred_token=3,
+        n_action_pred_token=5,
         action_chunk_size=5,
         vqvae_n_embed=1024,  # codebook size
         vqvae_embedding_dim=128,  # latent dimension
@@ -104,7 +104,7 @@ def prepare_data(dataset_name, policy, dataset_metadata):
     dataloader = torch.utils.data.DataLoader(
         dataset,
         num_workers=4,
-        batch_size=128,
+        batch_size=64,
         shuffle=True,
         pin_memory=True,
         drop_last=True,
@@ -124,6 +124,7 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000):
     
     os.makedirs(ckpt_dir, exist_ok=True)
     losses = []
+    eval_metrics = []
     
     # Training loop
     step = 0
@@ -148,15 +149,73 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000):
             if step % 100 == 0:
                 print(f"step: {step} loss: {loss_value:.4f}")
                 
+                # Run evaluation every 100 steps
+                print(f"Running evaluation at step {step}...")
+                # Switch to evaluation mode
+                policy.eval()
+                # Select a random episode for evaluation
+                episode_index = np.random.randint(0, dataset.num_episodes)
+                gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_index)
+                
+                # Calculate and log evaluation metrics if available
+                if gt_actions is not None and pred_actions is not None and gt_actions.shape == pred_actions.shape:
+                    mae = torch.mean(torch.abs(pred_actions - gt_actions)).item()
+                    eval_metrics.append((step, mae))
+                    print(f"Evaluation MAE at step {step}: {mae:.4f}")
+                    
+                    # Optionally save plots at regular intervals
+                    if step % 1000 == 0:
+                        eval_dir = os.path.join(ckpt_dir, f"eval_step_{step}")
+                        os.makedirs(eval_dir, exist_ok=True)
+                        plot_results(gt_actions, pred_actions, eval_dir)
+                
+                # Switch back to training mode
+                policy.train()
+                
             step += 1
             if step >= num_epochs:
                 break
+    
+    # Final evaluation
+    print("Running final evaluation...")
+    policy.eval()
+    gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_index=0)
+    if gt_actions is not None and pred_actions is not None and gt_actions.shape == pred_actions.shape:
+        final_mae = torch.mean(torch.abs(pred_actions - gt_actions)).item()
+        print(f"Final evaluation MAE: {final_mae:.4f}")
+        eval_metrics.append((step, final_mae))
+        
+        # Save final evaluation plots
+        final_eval_dir = os.path.join(ckpt_dir, "final_eval")
+        os.makedirs(final_eval_dir, exist_ok=True)
+        plot_results(gt_actions, pred_actions, final_eval_dir)
     
     # Save final model
     policy.save_pretrained(ckpt_dir)
     print(f"Training completed. Model saved to {ckpt_dir}")
     
-    return losses
+    # Save training and evaluation metrics
+    if eval_metrics:
+        plt.figure(figsize=(12, 6))
+        
+        plt.subplot(1, 2, 1)
+        plt.plot(losses)
+        plt.title('Training Loss')
+        plt.xlabel('Step')
+        plt.ylabel('Loss')
+        
+        plt.subplot(1, 2, 2)
+        steps, maes = zip(*eval_metrics)
+        plt.plot(steps, maes, 'r-')
+        plt.title('Evaluation MAE')
+        plt.xlabel('Step')
+        plt.ylabel('Mean Absolute Error')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(ckpt_dir, 'training_metrics.png'))
+        plt.close()
+    
+    return losses, eval_metrics
 
 
 def evaluate_policy(policy, dataset, device, episode_index=0):
@@ -187,36 +246,9 @@ def evaluate_policy(policy, dataset, device, episode_index=0):
         
         # Get action prediction from policy - this returns the raw, high-dimensional output
         with torch.no_grad():
-            raw_action = policy.select_action(inp_batch)
-            
-            # For VQBeT, we need to use the unnormalize_outputs to convert to the actual action space
-            # This converts from token/latent space to continuous action
-            if hasattr(policy, 'unnormalize_outputs'):
-                # The original action is stored in the batch with key 'action'
-                # This helps us know the expected shape
-                expected_action_shape = inp_batch["action"].shape
-                
-                # Try to use the policy's utility methods to convert
-                if hasattr(policy, 'detokenize_action'):
-                    # If there's a specific detokenize_action method
-                    action = policy.detokenize_action(raw_action)
-                else:
-                    # If not, we need to pass through unnormalize_outputs
-                    # Match the expected shape for the action output
-                    action_dict = {"action": raw_action}
-                    unnormalized = policy.unnormalize_outputs(action_dict)
-                    action = unnormalized["action"]
-                    
-                    # We might need to reshape to match the expected action shape
-                    if action.shape != expected_action_shape:
-                        # Just take the first action if it's a sequence
-                        action = action[:, 0, :]
-            else:
-                # Fallback - just use the raw output but warn the user
-                action = raw_action
-                print("Warning: Cannot properly convert VQBeT output to action format")
+            action = policy.select_action(inp_batch)
         
-        actions.append(action)
+        actions.append(action[:, 0, :])
         gt_actions.append(inp_batch["action"][:, 0, :])
         images.append(inp_batch["observation.image"] if "observation.image" in inp_batch else None)
     
@@ -225,14 +257,8 @@ def evaluate_policy(policy, dataset, device, episode_index=0):
         actions = torch.cat(actions, dim=0)
         gt_actions = torch.cat(gt_actions, dim=0)
         
-        # Print action shape information for debugging
-        print(f"Predicted action shape: {actions.shape}")
-        print(f"Ground truth action shape: {gt_actions.shape}")
-        
         # Ensure dimensions match before calculating error
         if actions.shape[1] != gt_actions.shape[1]:
-            print(f"Warning: Action dimensions don't match: pred={actions.shape[1]}, gt={gt_actions.shape[1]}")
-            # Try to adjust dimensions if possible
             if hasattr(actions, "reshape") and actions.numel() // gt_actions.shape[0] == gt_actions.shape[1]:
                 actions = actions.reshape(gt_actions.shape)
         
@@ -352,23 +378,29 @@ def main():
     
     # Train the policy
     print("Starting training...")
-    losses = train_policy(policy, dataset, dataloader, CKPT_DIR)
+    losses, eval_metrics = train_policy(policy, dataset, dataloader, CKPT_DIR)
     
     # Create directories if they don't exist
     if not os.path.exists(CKPT_DIR):
         os.makedirs(CKPT_DIR, exist_ok=True)
-        
-    # Plot training loss and save in CKPT_DIR
-    if losses:
-        plt.figure(figsize=(10, 6))
-        plt.plot(losses)
-        plt.title('Training Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.savefig(os.path.join(CKPT_DIR, 'training_loss.png'))
     
-    # Evaluate the policy
-    print("Evaluating policy...")
+    # Training metrics are already saved in train_policy function
+    # But we can add additional visualization or logging here if needed
+    if eval_metrics:
+        print(f"Final evaluation metrics: MAE = {eval_metrics[-1][1]:.4f}")
+        
+        # Save evaluation metrics to a CSV file for later analysis
+        import csv
+        metrics_file = os.path.join(CKPT_DIR, 'eval_metrics.csv')
+        with open(metrics_file, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['Step', 'MAE'])
+            for step, mae in eval_metrics:
+                writer.writerow([step, mae])
+        print(f"Saved evaluation metrics to {metrics_file}")
+    
+    # Evaluate the policy (final detailed evaluation)
+    print("Running final detailed evaluation...")
     # Move policy to device for evaluation
     policy.to(device)
     gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_index=0)
