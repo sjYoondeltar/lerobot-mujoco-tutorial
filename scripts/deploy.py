@@ -300,32 +300,28 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
                              action_dim = policy.config.output_features["action.joint_angle"].shape[-1] # Infer action dim
                              action = np.zeros(action_dim)
                     elif policy_type == 'vqbet':
-                        # VQBeT output handling
+                        # More robust handling for VQBeT outputs
                         if isinstance(action_output, torch.Tensor):
-                            # Check if this is a high-dimensional output that needs detokenization
-                            if action_output.shape[-1] > 20:  # Likely a tokenized output
-                                print(f"VQBeT raw output shape: {action_output.shape}")
-                                try:
-                                    # First try to detokenize if the method exists
-                                    if hasattr(policy, 'detokenize_action'):
-                                        action = policy.detokenize_action(action_output).cpu().numpy()[0]
-                                    # Otherwise, try to use the policy's unnormalize_outputs
-                                    elif hasattr(policy, 'unnormalize_outputs'):
-                                        action_dict = {"action": action_output}
-                                        unnormalized = policy.unnormalize_outputs(action_dict)
-                                        action = unnormalized["action"].cpu().numpy()[0]
-                                    else:
-                                        # If direct conversion not available, use a fallback
-                                        print("Warning: VQBeT action conversion methods not found")
-                                        action_dim = 7  # Hardcoded for robot joint angles
-                                        action = np.zeros(action_dim)
-                                except Exception as e:
-                                    print(f"Error in VQBeT action conversion: {e}")
-                                    action_dim = 7  # Hardcoded for robot joint angles
-                                    action = np.zeros(action_dim)
+                            # Try to use policy's built-in methods first
+                            if hasattr(policy, 'detokenize_action'):
+                                print(f"Detokenizing action output: {action_output}")
+                                action = policy.detokenize_action(action_output)
+                                action = action[0].cpu().numpy()  # Take first action
+                            elif hasattr(policy, 'unnormalize_outputs'):
+                                print(f"Unnormalizing action output: {action_output}")
+                                action_dict = {"action": action_output}
+                                unnormalized = policy.unnormalize_outputs(action_dict)
+                                action = unnormalized["action"].cpu().numpy()
+                                
+                                # Take first action if multiple actions returned
+                                if action.ndim > 1:
+                                    action = action[0]
                             else:
-                                # Direct action output
-                                action = action_output[0].cpu().numpy()
+                                # Direct handling as fallback
+                                print(f"Direct handling action output: {action_output}")
+                                action = action_output.cpu().numpy()
+                                if action.ndim > 1:
+                                    action = action[0]  # Take first action
                         else:
                             # Handle unexpected output format
                             print(f"Warning: Unexpected VQBeT action output format: {type(action_output)}")
