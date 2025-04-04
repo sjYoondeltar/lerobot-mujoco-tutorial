@@ -74,16 +74,22 @@ The `train_vqbet.py` script uses Accelerate as follows:
 
 1. Accelerator initialization:
 ```python
+from accelerate.utils import DistributedDataParallelKwargs
+
+# Set up DDP parameters to handle unused parameters issue
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(
     mixed_precision='fp16',
     gradient_accumulation_steps=1,
     log_with="tensorboard",
-    project_dir=os.path.join(CKPT_DIR, "logs")
+    project_dir=os.path.join(CKPT_DIR, "logs"),
+    kwargs_handlers=[ddp_kwargs]  # Pass as kwargs_handlers
 )
 ```
 
 2. Preparing model, optimizer, and dataloader:
 ```python
+# No need to pass ddp_kwargs here - it's handled in Accelerator initialization
 policy, optimizer, dataloader = accelerator.prepare(policy, optimizer, dataloader)
 ```
 
@@ -111,6 +117,44 @@ Training results are saved in the `./ckpt/vqbet_y/logs` directory. You can visua
 ```bash
 tensorboard --logdir=./ckpt/vqbet_y/logs
 ```
+
+### 8. Troubleshooting
+
+#### DDP Error: Unused Parameters
+
+If you encounter the following error when training with multiple GPUs:
+
+```
+RuntimeError: Expected to have finished reduction in the prior iteration before starting a new one. This error indicates that your module has parameters that were not used in producing loss.
+```
+
+This is a common issue with Vector Quantized models in distributed training. The error occurs because some model parameters (especially in the codebook) might not be used in every batch, causing gradient synchronization problems.
+
+**Solution**: Make sure to use the `find_unused_parameters=True` option in DDP configuration:
+
+```python
+# In your train_vqbet.py file - CORRECT METHOD
+from accelerate.utils import DistributedDataParallelKwargs
+
+# Add this before initializing the Accelerator
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+accelerator = Accelerator(
+    mixed_precision='fp16',
+    gradient_accumulation_steps=1,
+    log_with="tensorboard",
+    project_dir=os.path.join(CKPT_DIR, "logs"),
+    kwargs_handlers=[ddp_kwargs]
+)
+```
+
+If you encounter the error:
+```
+Accelerator.prepare() got an unexpected keyword argument 'ddp_kwargs'
+```
+
+It means your version of Accelerate doesn't support passing `ddp_kwargs` directly to `prepare()`. Always use the `kwargs_handlers` parameter as shown above.
+
+This option allows DDP to detect unused parameters and exclude them from gradient synchronization.
 
 ### References
 
@@ -195,16 +239,22 @@ accelerate launch --multi_gpu --mixed_precision=fp16 --num_processes=4 scripts/v
 
 1. Accelerator 초기화:
 ```python
+from accelerate.utils import DistributedDataParallelKwargs
+
+# 사용되지 않는 파라미터 문제를 처리하기 위한 DDP 설정
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(
     mixed_precision='fp16',
     gradient_accumulation_steps=1,
     log_with="tensorboard",
-    project_dir=os.path.join(CKPT_DIR, "logs")
+    project_dir=os.path.join(CKPT_DIR, "logs"),
+    kwargs_handlers=[ddp_kwargs]  # kwargs_handlers로 전달
 )
 ```
 
 2. 모델, 옵티마이저, 데이터로더 준비:
 ```python
+# 여기서는 ddp_kwargs를 전달할 필요 없음 - Accelerator 초기화에서 이미 처리됨
 policy, optimizer, dataloader = accelerator.prepare(policy, optimizer, dataloader)
 ```
 
@@ -232,6 +282,44 @@ if accelerator.is_main_process:
 ```bash
 tensorboard --logdir=./ckpt/vqbet_y/logs
 ```
+
+### 8. 문제 해결
+
+#### DDP 에러: 사용되지 않는 파라미터
+
+다중 GPU 훈련 시 다음과 같은 에러가 발생할 수 있습니다:
+
+```
+RuntimeError: Expected to have finished reduction in the prior iteration before starting a new one. This error indicates that your module has parameters that were not used in producing loss.
+```
+
+이 오류는 Vector Quantized 모델을 분산 훈련할 때 흔히 발생합니다. 일부 모델 파라미터(특히 코드북의 파라미터)가 모든 배치에서 사용되지 않아 그래디언트 동기화 문제가 발생하기 때문입니다.
+
+**해결 방법**: DDP 구성에 `find_unused_parameters=True` 옵션을 사용해야 합니다:
+
+```python
+# train_vqbet.py 파일에서 - 올바른 방법
+from accelerate.utils import DistributedDataParallelKwargs
+
+# Accelerator 초기화 전에 추가
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+accelerator = Accelerator(
+    mixed_precision='fp16',
+    gradient_accumulation_steps=1,
+    log_with="tensorboard",
+    project_dir=os.path.join(CKPT_DIR, "logs"),
+    kwargs_handlers=[ddp_kwargs]
+)
+```
+
+다음과 같은 에러가 발생한다면:
+```
+Accelerator.prepare() got an unexpected keyword argument 'ddp_kwargs'
+```
+
+이는 사용 중인 Accelerate 버전이 `prepare()` 함수에 직접 `ddp_kwargs`를 전달하는 것을 지원하지 않는다는 의미입니다. 항상 위에 표시된 것처럼 `kwargs_handlers` 매개변수를 사용하세요.
+
+이 옵션을 사용하면 DDP가 사용되지 않는 파라미터를 감지하고 그래디언트 동기화 과정에서 제외합니다.
 
 ### 참고 자료
 
