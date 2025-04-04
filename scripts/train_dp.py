@@ -70,14 +70,14 @@ def create_or_load_policy(ckpt_dir: str, load_ckpt: bool = False) -> DiffusionPo
     features = dataset_to_policy_features(dataset_metadata.features)
     output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
-    input_features.pop("observation.wrist_image")
+    # input_features.pop("observation.wrist_image")
 
     # Create policy configuration
     cfg = DiffusionConfig(
         input_features=input_features, 
         output_features=output_features, 
-        horizon=8,  # Must be multiple of 8 due to downsampling factor
-        n_action_steps=8
+        horizon=16,  # Must be multiple of 8 due to downsampling factor
+        n_action_steps=1
     )
     
     # Create or load policy
@@ -105,8 +105,18 @@ def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig)
     # Resolve delta timestamps for action chunking
     delta_timestamps = resolve_delta_timestamps(cfg, dataset_metadata)
     
-    # Create data transformation pipeline
+    # Create data transformation pipeline with enhanced augmentations
     transform = transforms.Compose([
+        # Enhanced image augmentations (matching scripts/train.py)
+        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+        transforms.GaussianBlur(kernel_size=(5, 9), sigma=(0.1, 5.)),
+        # Add 5 RandomErasing masks (random masking)
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+        # Original noise augmentation
         AddGaussianNoise(mean=0., std=0.02),
         transforms.Lambda(lambda x: x.clamp(0, 1))
     ])
@@ -127,7 +137,7 @@ def train_policy(
     dataset: LeRobotDataset, 
     ckpt_dir: str, 
     device: torch.device,
-    training_steps: int = 3000, 
+    training_steps: int = 5000,  # Increased from 3000 for better convergence
     log_freq: int = 100
 ) -> List[float]:
     """
@@ -152,7 +162,7 @@ def train_policy(
     dataloader = torch.utils.data.DataLoader(
         dataset,
         num_workers=4,
-        batch_size=64,
+        batch_size=128,  # Increased from 64 to match scripts/train.py
         shuffle=True,
         pin_memory=device.type != "cpu",
         drop_last=True,
@@ -326,7 +336,7 @@ def main():
     ROOT = "./demo_data"  # Path to demonstration data
     CKPT_DIR = "./ckpt/diffusion_y"  # Path to save checkpoints
     DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    TRAINING_STEPS = 3000
+    TRAINING_STEPS = 2000
     LOG_FREQ = 100
     
     print(f"Training Diffusion Policy on device: {DEVICE}")
