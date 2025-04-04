@@ -45,7 +45,7 @@ This command provides an interactive prompt to configure your distributed traini
 The simplest way is to run on a single GPU with the following command:
 
 ```bash
-python scripts/train_vqbet.py
+python scripts/vqbet/train_vqbet.py
 ```
 
 The Accelerator will automatically initialize and detect a single GPU environment.
@@ -55,7 +55,7 @@ The Accelerator will automatically initialize and detect a single GPU environmen
 To run distributed training across multiple GPUs, use the `accelerate launch` command:
 
 ```bash
-accelerate launch scripts/train_vqbet.py
+accelerate launch scripts/vqbet/train_vqbet.py
 ```
 
 This command distributes the training across multiple GPUs according to your configuration file.
@@ -65,7 +65,7 @@ This command distributes the training across multiple GPUs according to your con
 You can also specify certain configurations directly in the CLI:
 
 ```bash
-accelerate launch --multi_gpu --mixed_precision=fp16 --num_processes=4 scripts/train_vqbet.py
+accelerate launch --multi_gpu --mixed_precision=fp16 --num_processes=4 scripts/vqbet/train_vqbet.py
 ```
 
 ### 6. Code Explanation
@@ -166,7 +166,7 @@ accelerate config
 가장 간단한 방법으로, 단일 GPU에서 다음 명령어로 실행할 수 있습니다:
 
 ```bash
-python scripts/train_vqbet.py
+python scripts/vqbet/train_vqbet.py
 ```
 
 코드 내에서 Accelerator가 자동으로 초기화되고 단일 GPU 환경을 감지합니다.
@@ -176,7 +176,7 @@ python scripts/train_vqbet.py
 여러 GPU에서 분산 훈련을 실행하려면 `accelerate launch` 명령어를 사용하세요:
 
 ```bash
-accelerate launch scripts/train_vqbet.py
+accelerate launch scripts/vqbet/train_vqbet.py
 ```
 
 이 명령어는 설정 파일에 따라 여러 GPU에 걸쳐 훈련을 분산시킵니다.
@@ -186,7 +186,7 @@ accelerate launch scripts/train_vqbet.py
 특정 설정을 CLI에서 직접 지정할 수도 있습니다:
 
 ```bash
-accelerate launch --multi_gpu --mixed_precision=fp16 --num_processes=4 scripts/train_vqbet.py
+accelerate launch --multi_gpu --mixed_precision=fp16 --num_processes=4 scripts/vqbet/train_vqbet.py
 ```
 
 ### 6. 코드 설명
