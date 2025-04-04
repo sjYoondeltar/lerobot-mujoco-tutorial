@@ -2,9 +2,9 @@
 # coding: utf-8
 
 """
-Train Vector-Quantized Behavior Transformer (VQBET)
+Train Vector-Quantized Behavior Transformer (VQBeT)
 
-This script trains a VQBET model on the collected robot demonstration dataset.
+This script trains a VQBeT model on the collected robot demonstration dataset.
 It takes approximately 30-60 minutes to train the model.
 The trained checkpoint will be saved in the './ckpt/vqbet_y' folder.
 """
@@ -20,12 +20,12 @@ import time
 import torch
 import matplotlib.pyplot as plt
 from torchvision import transforms
-from lerobot.common.policies.vqbet.modeling_vqbet import VQBETPolicy
+from lerobot.common.policies.vqbet.modeling_vqbet import VQBeTPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.common.datasets.utils import dataset_to_policy_features
 from lerobot.configs.types import FeatureType
-from lerobot.common.policies.vqbet.configuration_vqbet import VQBETConfig
+from lerobot.common.policies.vqbet.configuration_vqbet import VQBeTConfig
 from lerobot.common.datasets.factory import resolve_delta_timestamps
 
 
@@ -35,24 +35,42 @@ def create_or_load_policy(ckpt_dir, load_ckpt=False):
     features = dataset_to_policy_features(dataset_metadata.features)
     output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
-    # input_features.pop("observation.wrist_image")
+    
+    # For VQBeT, we need only one image input
+    # Keep only 'observation.image' and remove other image inputs if they exist
+    image_keys = [key for key in input_features.keys() if key.startswith("observation.") and key.endswith("image")]
+    if len(image_keys) > 1:
+        print(f"Found multiple image inputs: {image_keys}")
+        print(f"Keeping only 'observation.image' and removing others.")
+        for key in image_keys:
+            if key != "observation.image":
+                input_features.pop(key, None)
+    
+    # Print the features being used
+    print(f"Input features: {list(input_features.keys())}")
+    print(f"Output features: {list(output_features.keys())}")
 
-    # Configure VQBET model
-    cfg = VQBETConfig(
+    # Configure VQBeT model
+    cfg = VQBeTConfig(
         input_features=input_features, 
-        output_features=output_features, 
-        sequence_length=10,
-        codebook_size=1024,
-        latent_dim=128,
-        n_action_steps=10
+        output_features=output_features,
+        n_obs_steps=5,
+        n_action_pred_token=3,
+        action_chunk_size=5,
+        vqvae_n_embed=1024,  # codebook size
+        vqvae_embedding_dim=128,  # latent dimension
+        vision_backbone="resnet18",
+        spatial_softmax_num_keypoints=32,
+        gpt_n_layer=8,
+        gpt_n_head=8
     )
     
     if load_ckpt and os.path.exists(ckpt_dir):
         print(f"Loading policy from {ckpt_dir}")
-        policy = VQBETPolicy.from_pretrained(ckpt_dir)
+        policy = VQBeTPolicy.from_pretrained(ckpt_dir)
     else:
         print("Creating new policy")
-        policy = VQBETPolicy(cfg, dataset_stats=dataset_metadata.stats)
+        policy = VQBeTPolicy(cfg, dataset_stats=dataset_metadata.stats)
     
     return policy, dataset_metadata
 
