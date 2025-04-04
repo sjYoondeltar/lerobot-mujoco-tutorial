@@ -19,6 +19,7 @@ import numpy as np
 import time
 import torch
 import matplotlib.pyplot as plt
+from torchvision import transforms # Import transforms
 from lerobot.common.policies.act.modeling_act import ACTPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
@@ -34,7 +35,7 @@ def create_or_load_policy(ckpt_dir, load_ckpt=False):
     features = dataset_to_policy_features(dataset_metadata.features)
     output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
-    input_features.pop("observation.wrist_image")
+    # input_features.pop("observation.wrist_image")
 
     # 새로운 API 방식으로 설정
     cfg = ACTConfig(
@@ -59,18 +60,31 @@ def prepare_data(dataset_name, policy, dataset_metadata):
     # Policy의 config에서 delta_timestamps 해석
     delta_timestamps = resolve_delta_timestamps(policy.config, dataset_metadata)
     
-    # 새 API 방식으로 데이터셋 생성
+    # Define image augmentations (excluding flips and rotations)
+    image_augmentation_transforms = transforms.Compose([
+        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+        transforms.GaussianBlur(kernel_size=(5, 9), sigma=(0.1, 5.)),
+        # Add 5 RandomErasing masks
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+        transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
+    ])
+
+    # 새 API 방식으로 데이터셋 생성, image_transforms 인자 사용
     dataset = LeRobotDataset(
         dataset_name, 
         delta_timestamps=delta_timestamps, 
-        root='./demo_data'
+        root='./demo_data',
+        image_transforms=image_augmentation_transforms # Pass the defined transforms
     )
     
     # 훈련용 데이터로더 생성
     dataloader = torch.utils.data.DataLoader(
         dataset,
         num_workers=4,
-        batch_size=64,
+        batch_size=128,
         shuffle=True,
         pin_memory=True,
         drop_last=True,

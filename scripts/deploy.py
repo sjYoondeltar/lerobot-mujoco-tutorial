@@ -50,12 +50,36 @@ def load_policy(policy_type, ckpt_dir):
         output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
         input_features = {key: ft for key, ft in features.items() if key not in output_features}
         
+        # Check if config.json exists in the checkpoint directory to determine if wrist_image is used
+        config_json_path = os.path.join(ckpt_dir, "config.json")
+        use_wrist_image = True  # Default to including wrist image
+        
+        if os.path.exists(config_json_path):
+            try:
+                import json
+                with open(config_json_path, 'r') as f:
+                    config_data = json.load(f)
+                
+                # Check if wrist_image was used during training
+                if 'input_features' in config_data:
+                    use_wrist_image = 'observation.wrist_image' in config_data['input_features']
+                    print(f"Based on checkpoint config, wrist_image usage: {'Enabled' if use_wrist_image else 'Disabled'}")
+                else:
+                    print("Config file does not contain input_features information. Using all features.")
+            except Exception as e:
+                print(f"Error reading config.json: {e}. Using all features.")
+        else:
+            print(f"No config.json found in {ckpt_dir}. Using all features.")
+        
+        # Remove wrist_image from input features if not used during training
+        if not use_wrist_image and 'observation.wrist_image' in input_features:
+            print("Removing observation.wrist_image from input features to match training configuration")
+            input_features.pop('observation.wrist_image')
+        
         policy = None
         cfg = None
 
         if policy_type == 'act':
-            # input_features.pop("observation.wrist_image") # Specific adjustment if needed for ACT
-            
             # Create ACT config
             print("Configuring ACT policy...")
             cfg = ACTConfig(
@@ -74,16 +98,13 @@ def load_policy(policy_type, ckpt_dir):
             )
 
         elif policy_type == 'diffusion':
-            # input_features.pop("observation.wrist_image") # Specific adjustment if needed for Diffusion
-            input_features.pop("observation.wrist_image", None) # 학습 시 사용하지 않았으므로 배포 시에도 제외 (KeyError 방지 위해 None 추가)
-            
             # Configure Diffusion policy
             print("Configuring Diffusion policy...")
             cfg = DiffusionConfig(
                 input_features=input_features, 
                 output_features=output_features, 
-                horizon=16,  # Example Diffusion specific param (match training)
-                n_action_steps=8 # Example Diffusion specific param (match training) -> 이 값도 학습(train_dp.py)과 맞춰야 합니다! train_dp.py 에서는 1 이었음
+                horizon=16,  # Match training parameter
+                n_action_steps=1 # Match training parameter
             )
 
             # Load the trained policy with robust error handling
@@ -93,8 +114,8 @@ def load_policy(policy_type, ckpt_dir):
                     ckpt_dir,
                     config=cfg,
                     dataset_stats=dataset_metadata.stats,
-                    local_files_only=True,  # Important for local loading
-                    trust_remote_code=True # Depending on setup
+                    local_files_only=True,
+                    trust_remote_code=True 
                 )
             except Exception as e:
                 print(f"Error loading Diffusion policy via from_pretrained: {e}")
@@ -158,6 +179,10 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
     # Image transform
     img_transform = torchvision.transforms.ToTensor()
     
+    # Check if the policy uses wrist_image
+    uses_wrist_image = 'observation.wrist_image' in policy.config.input_features
+    print(f"Policy {'uses' if uses_wrist_image else 'does not use'} wrist camera images")
+    
     step_count = 0
     done = False
     
@@ -172,21 +197,23 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
                 # print(f"Step: {step_count}, State: {state}") # Verbose logging
                 image, wrist_image = learning_env.grab_image() 
                 
-                # Preprocess images
+                # Preprocess main camera image
                 image_pil = Image.fromarray(image).resize((256, 256))
                 image_tensor = img_transform(image_pil).unsqueeze(0).to(DEVICE)
-                
-                wrist_image_pil = Image.fromarray(wrist_image).resize((256, 256))
-                wrist_image_tensor = img_transform(wrist_image_pil).unsqueeze(0).to(DEVICE)
                 
                 # Prepare input data dictionary
                 data = {
                     'observation.state': torch.tensor([state], dtype=torch.float32).to(DEVICE),
                     'observation.image': image_tensor,
-                    # 'observation.wrist_image': wrist_image_tensor,
                     'task': ['Put mug cup on the plate'], # Optional, depends if model uses it
                     'timestamp': torch.tensor([step_count / control_hz], dtype=torch.float32).to(DEVICE) # Optional
                 }
+                
+                # Only include wrist camera image if the policy uses it
+                if uses_wrist_image:
+                    wrist_image_pil = Image.fromarray(wrist_image).resize((256, 256))
+                    wrist_image_tensor = img_transform(wrist_image_pil).unsqueeze(0).to(DEVICE)
+                    data['observation.wrist_image'] = wrist_image_tensor
                 
                 # Predict action
                 action = None
