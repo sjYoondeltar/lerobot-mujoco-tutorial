@@ -7,8 +7,6 @@ Train Vector-Quantized Behavior Transformer (VQBeT)
 This script trains a VQBeT model on the collected robot demonstration dataset.
 It takes approximately 30-60 minutes to train the model.
 The trained checkpoint will be saved in the './ckpt/vqbet_y' folder.
-
-This version uses Hugging Face Accelerate for multi-GPU training acceleration.
 """
 
 import os
@@ -22,7 +20,6 @@ import time
 import torch
 import matplotlib.pyplot as plt
 from torchvision import transforms
-from accelerate import Accelerator
 from lerobot.common.policies.vqbet.modeling_vqbet import VQBeTPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
@@ -116,23 +113,14 @@ def prepare_data(dataset_name, policy, dataset_metadata):
     return dataset, dataloader
 
 
-def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000, accelerator=None):
-    """Train the policy on the dataset using Accelerate for multi-GPU support if available"""
-    # Use accelerator if provided, otherwise set device manually
-    if accelerator is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        policy = policy.to(device)
-    else:
-        device = accelerator.device
-    
+def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000):
+    """Train the policy on the dataset"""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     policy.train()
+    policy.to(device)
     
     # Setup optimizer
     optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
-    
-    # Prepare for distributed training if using accelerator
-    if accelerator is not None:
-        policy, optimizer, dataloader = accelerator.prepare(policy, optimizer, dataloader)
     
     os.makedirs(ckpt_dir, exist_ok=True)
     losses = []
@@ -143,48 +131,30 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000, acceler
         for batch in dataloader:
             if step >= num_epochs:
                 break
-            
-            # Move batch to device if not using accelerator
-            if accelerator is None:
-                inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) 
-                           for k, v in batch.items()}
-            else:
-                inp_batch = batch  # accelerator already moved the batch
+                
+            inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) 
+                       for k, v in batch.items()}
             
             loss, _ = policy.forward(inp_batch)
             
-            # Backward and optimize
-            if accelerator is None:
-                loss.backward()
-                optimizer.step()
-                optimizer.zero_grad()
-            else:
-                accelerator.backward(loss)
-                optimizer.step()
-                optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
             
-            # For tracking, get loss value - ensure main process only for distributed
+            # For tracking, get loss value
             loss_value = loss.item()
             losses.append(loss_value)
             
             if step % 100 == 0:
-                # Only log from main process if using accelerate
-                if accelerator is None or accelerator.is_main_process:
-                    print(f"step: {step} loss: {loss_value:.4f}")
+                print(f"step: {step} loss: {loss_value:.4f}")
                 
             step += 1
             if step >= num_epochs:
                 break
     
-    # Save final model (from main process if distributed)
-    if accelerator is None or accelerator.is_main_process:
-        # If using accelerator, get the unwrapped model to save
-        if accelerator is not None:
-            unwrapped_model = accelerator.unwrap_model(policy)
-            unwrapped_model.save_pretrained(ckpt_dir)
-        else:
-            policy.save_pretrained(ckpt_dir)
-        print(f"Training completed. Model saved to {ckpt_dir}")
+    # Save final model
+    policy.save_pretrained(ckpt_dir)
+    print(f"Training completed. Model saved to {ckpt_dir}")
     
     return losses
 
@@ -366,69 +336,51 @@ def main():
     ROOT = "./demo_data"  # Path to demonstration data
     CKPT_DIR = "./ckpt/vqbet_y"  # Path to save checkpoints
     
-    # Initialize accelerator
-    accelerator = Accelerator(
-        mixed_precision='fp16',  # You can set to 'no' to disable mixed precision
-        gradient_accumulation_steps=1,
-        log_with="tensorboard",  # You can use 'wandb' if you have wandb installed
-        project_dir=os.path.join(CKPT_DIR, "logs")
-    )
-    
-    # Log basic info about the run
-    if accelerator.is_main_process:
-        print(f"Using device: {accelerator.device}")
-        print(f"Mixed precision: {accelerator.mixed_precision}")
-        print(f"Num processes: {accelerator.num_processes}")
-        print(f"Process index: {accelerator.process_index}")
-        print(f"Distributed type: {accelerator.distributed_type}")
+    # Use standard device setting
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
     
     # Try to load the dataset
     try:
         policy, dataset_metadata = create_or_load_policy(CKPT_DIR, load_ckpt=False)
         dataset, dataloader = prepare_data(REPO_NAME, policy, dataset_metadata)
-        if accelerator.is_main_process:
-            print(f"Dataset loaded with {dataset.num_episodes} episodes")
+        print(f"Dataset loaded with {dataset.num_episodes} episodes")
     except Exception as e:
-        if accelerator.is_main_process:
-            print(f"Failed to load dataset: {e}")
-            print("Please make sure you have collected data or are using the correct path.")
+        print(f"Failed to load dataset: {e}")
+        print("Please make sure you have collected data or are using the correct path.")
         return
     
-    # Train the policy with accelerator
-    if accelerator.is_main_process:
-        print("Starting training...")
-    losses = train_policy(policy, dataset, dataloader, CKPT_DIR, accelerator=accelerator)
+    # Train the policy
+    print("Starting training...")
+    losses = train_policy(policy, dataset, dataloader, CKPT_DIR)
     
     # Create directories if they don't exist
-    if accelerator.is_main_process:
-        if not os.path.exists(CKPT_DIR):
-            os.makedirs(CKPT_DIR, exist_ok=True)
+    if not os.path.exists(CKPT_DIR):
+        os.makedirs(CKPT_DIR, exist_ok=True)
         
-        # Plot training loss and save in CKPT_DIR
-        if losses:
-            plt.figure(figsize=(10, 6))
-            plt.plot(losses)
-            plt.title('Training Loss')
-            plt.xlabel('Epoch')
-            plt.ylabel('Loss')
-            plt.savefig(os.path.join(CKPT_DIR, 'training_loss.png'))
+    # Plot training loss and save in CKPT_DIR
+    if losses:
+        plt.figure(figsize=(10, 6))
+        plt.plot(losses)
+        plt.title('Training Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.savefig(os.path.join(CKPT_DIR, 'training_loss.png'))
     
-    # Only evaluate on main process for distributed training
-    if accelerator.is_main_process:
-        print("Evaluating policy...")
-        # Get unwrapped model for evaluation
-        eval_model = accelerator.unwrap_model(policy)
-        eval_model.eval()
-        gt_actions, pred_actions = evaluate_policy(eval_model, dataset, accelerator.device, episode_index=0)
+    # Evaluate the policy
+    print("Evaluating policy...")
+    # Move policy to device for evaluation
+    policy.to(device)
+    gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_index=0)
         
-        # Plot evaluation results and save in CKPT_DIR
-        if gt_actions is not None and pred_actions is not None:
-            # Check if shapes match before attempting to plot
-            if gt_actions.shape == pred_actions.shape:
-                plot_results(gt_actions, pred_actions, CKPT_DIR)
-            else:
-                print("Skipping plot_results because action shapes don't match")
-                print(f"Ground truth shape: {gt_actions.shape}, Prediction shape: {pred_actions.shape}")
+    # Plot evaluation results and save in CKPT_DIR
+    if gt_actions is not None and pred_actions is not None:
+        # Check if shapes match before attempting to plot
+        if gt_actions.shape == pred_actions.shape:
+            plot_results(gt_actions, pred_actions, CKPT_DIR)
+        else:
+            print("Skipping plot_results because action shapes don't match")
+            print(f"Ground truth shape: {gt_actions.shape}, Prediction shape: {pred_actions.shape}")
 
 
 if __name__ == "__main__":
