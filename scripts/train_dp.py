@@ -70,7 +70,7 @@ def create_or_load_policy(ckpt_dir: str, load_ckpt: bool = False) -> DiffusionPo
     features = dataset_to_policy_features(dataset_metadata.features)
     output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
-    input_features.pop("observation.wrist_image")
+    # input_features.pop("observation.wrist_image")
 
     # Create policy configuration
     cfg = DiffusionConfig(
