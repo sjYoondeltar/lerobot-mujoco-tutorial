@@ -2,9 +2,9 @@
 # coding: utf-8
 
 """
-Deploy ACT or Diffusion Policy
+Deploy ACT, Diffusion, or VQBeT Policy
 
-This script loads a trained ACT or Diffusion policy model and deploys it in a MuJoCo 
+This script loads a trained ACT, Diffusion, or VQBeT policy model and deploys it in a MuJoCo 
 simulation environment. The model will control a robot to perform the pick and 
 place task that it was trained on. Select the policy type using the --policy_type argument.
 """
@@ -25,6 +25,8 @@ from lerobot.common.policies.act.configuration_act import ACTConfig
 from lerobot.common.policies.act.modeling_act import ACTPolicy
 from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
 from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.common.policies.vqbet.configuration_vqbet import VQBeTConfig
+from lerobot.common.policies.vqbet.modeling_vqbet import VQBeTPolicy
 from lerobot.configs.types import FeatureType
 from lerobot.common.datasets.factory import resolve_delta_timestamps
 from lerobot.common.datasets.utils import dataset_to_policy_features, write_json, serialize_dict
@@ -35,7 +37,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def load_policy(policy_type, ckpt_dir):
-    """Load a trained ACT or Diffusion Policy from checkpoint"""
+    """Load a trained ACT, Diffusion, or VQBeT Policy from checkpoint"""
     print(f"Attempting to load {policy_type.upper()} policy from: {ckpt_dir}")
     if not os.path.exists(ckpt_dir):
         print(f"Error: Checkpoint directory {ckpt_dir} does not exist.")
@@ -144,8 +146,70 @@ def load_policy(policy_type, ckpt_dir):
                 except Exception as e2:
                     print(f"Error with alternate loading method: {e2}")
                     return None, None
+        
+        elif policy_type == 'vqbet':
+            # Configure VQBeT policy
+            print("Configuring VQBeT policy...")
+            
+            # VQBeT only supports one image input
+            image_keys = [key for key in input_features.keys() if key.startswith("observation.") and key.endswith("image")]
+            if len(image_keys) > 1:
+                print(f"Found multiple image inputs: {image_keys}")
+                print(f"VQBeT only supports one image input. Keeping 'observation.image' and removing others.")
+                for key in image_keys:
+                    if key != "observation.image":
+                        input_features.pop(key, None)
+            
+            # Configure VQBeT
+            cfg = VQBeTConfig(
+                input_features=input_features, 
+                output_features=output_features,
+                n_obs_steps=5,
+                n_action_pred_token=3,
+                action_chunk_size=5,
+                vqvae_n_embed=1024,  # codebook size
+                vqvae_embedding_dim=128,  # latent dimension
+                vision_backbone="resnet18",
+                spatial_softmax_num_keypoints=32,
+                gpt_n_layer=8,
+                gpt_n_head=8
+            )
+            
+            # Load the VQBeT policy
+            try:
+                policy = VQBeTPolicy.from_pretrained(
+                    ckpt_dir,
+                    config=cfg,
+                    dataset_stats=dataset_metadata.stats
+                )
+            except Exception as e:
+                print(f"Error loading VQBeT policy: {e}")
+                print("\nTrying alternate loading method...")
+                try:
+                    policy = VQBeTPolicy(cfg, dataset_stats=dataset_metadata.stats)
+                    weights_path = os.path.join(ckpt_dir, "model.safetensors")
+                    if not os.path.exists(weights_path):
+                        weights_path = os.path.join(ckpt_dir, "pytorch_model.bin")
+                        
+                    if os.path.exists(weights_path):
+                        print(f"Loading weights from {weights_path}")
+                        if weights_path.endswith('.safetensors'):
+                            from safetensors.torch import load_file
+                            state_dict = load_file(weights_path, device=str(DEVICE))
+                        else:
+                            state_dict = torch.load(weights_path, map_location=DEVICE)
+                        
+                        policy.load_state_dict(state_dict)
+                        print("Successfully loaded model weights via alternate method.")
+                    else:
+                        print(f"Error: Weights file not found in {ckpt_dir}.")
+                        return None, None
+                except Exception as e2:
+                    print(f"Error with alternate loading method: {e2}")
+                    return None, None
+        
         else:
-            print(f"Error: Unknown policy type '{policy_type}'. Choose 'act' or 'diffusion'.")
+            print(f"Error: Unknown policy type '{policy_type}'. Choose 'act', 'diffusion', or 'vqbet'.")
             return None, None
 
         # Move policy to the correct device and set to evaluation mode
@@ -235,11 +299,43 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
                              # Fallback or error handling needed here - e.g., use zeros
                              action_dim = policy.config.output_features["action.joint_angle"].shape[-1] # Infer action dim
                              action = np.zeros(action_dim)
+                    elif policy_type == 'vqbet':
+                        # VQBeT output handling
+                        if isinstance(action_output, torch.Tensor):
+                            # Check if this is a high-dimensional output that needs detokenization
+                            if action_output.shape[-1] > 20:  # Likely a tokenized output
+                                print(f"VQBeT raw output shape: {action_output.shape}")
+                                try:
+                                    # First try to detokenize if the method exists
+                                    if hasattr(policy, 'detokenize_action'):
+                                        action = policy.detokenize_action(action_output).cpu().numpy()[0]
+                                    # Otherwise, try to use the policy's unnormalize_outputs
+                                    elif hasattr(policy, 'unnormalize_outputs'):
+                                        action_dict = {"action": action_output}
+                                        unnormalized = policy.unnormalize_outputs(action_dict)
+                                        action = unnormalized["action"].cpu().numpy()[0]
+                                    else:
+                                        # If direct conversion not available, use a fallback
+                                        print("Warning: VQBeT action conversion methods not found")
+                                        action_dim = 7  # Hardcoded for robot joint angles
+                                        action = np.zeros(action_dim)
+                                except Exception as e:
+                                    print(f"Error in VQBeT action conversion: {e}")
+                                    action_dim = 7  # Hardcoded for robot joint angles
+                                    action = np.zeros(action_dim)
+                            else:
+                                # Direct action output
+                                action = action_output[0].cpu().numpy()
+                        else:
+                            # Handle unexpected output format
+                            print(f"Warning: Unexpected VQBeT action output format: {type(action_output)}")
+                            action_dim = 7  # Hardcoded for robot joint angles
+                            action = np.zeros(action_dim)
 
                 if action is None:
                      print("Error: Failed to determine action from policy output.")
                      # Handle error: maybe stop, or use a default action
-                     action_dim = policy.config.output_features["action.joint_angle"].shape[-1] # Infer action dim
+                     action_dim = 7  # Standard dimension for robot actions
                      action = np.zeros(action_dim) # Example: use zero action
 
                 # Ensure action is a flat numpy array
@@ -287,13 +383,13 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Deploy a trained policy (ACT or Diffusion) in a MuJoCo environment.")
+    parser = argparse.ArgumentParser(description="Deploy a trained policy (ACT, Diffusion, or VQBeT) in a MuJoCo environment.")
     parser.add_argument(
         "--policy_type", 
         type=str, 
         required=True, 
-        choices=['act', 'diffusion'], 
-        help="Type of policy to load ('act' or 'diffusion')."
+        choices=['act', 'diffusion', 'vqbet'], 
+        help="Type of policy to load ('act', 'diffusion', or 'vqbet')."
     )
     parser.add_argument(
         "--ckpt_dir", 
