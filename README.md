@@ -36,14 +36,19 @@ unzip plate_11.zip
 
 ## 1. Collection Demonstration Data
 
-Run [1.collect_data.ipynb](1.collect_data.ipynb)
+Run [1.collect_data.ipynb](1.collect_data.ipynb) or use the command-line script:
+
+```bash
+# Run data collection script
+python scripts/collect_data.py
+```
 
 Collect demonstration data for the given environment.
-The task is to pick a mug and place it on the plate. The environment recognizes the success if the mug is on the plate, gthe ripper opened, and the end-effector positioned above the mug.
+The task is to pick a mug and place it on the plate. The environment recognizes the success if the mug is on the plate, the gripper opened, and the end-effector positioned above the mug.
 
 <img src="./media/teleop.gif" width="480" height="360">
 
-Use WASD for the xy plane, RF for the z-axis, QE for tilt, and ARROWs for the rest of rthe otations. 
+Use WASD for the xy plane, RF for the z-axis, QE for tilt, and ARROWs for the rest of the rotations. 
 
 SPACEBAR will change your gripper's state, and Z key will reset your environment with discarding the current episode data.
 
@@ -53,7 +58,8 @@ For overlayed images,
 - Top Left: Left Side View
 - Bottom Left: Top View
 
-The dataset is contained as follows:
+The dataset now collects multiple action types simultaneously:
+
 ```
 fps = 20,
 features={
@@ -70,20 +76,29 @@ features={
     "observation.state": {
         "dtype": "float32",
         "shape": (6,),
-        "names": ["state"], # x, y, z, roll, pitch, yaw
+        "names": ["state"],  # x, y, z, roll, pitch, yaw
     },
-    "action": {
+    "action.joint": {
         "dtype": "float32",
         "shape": (7,),
-        "names": ["action"], # 6 joint angles and 1 gripper
+        "names": ["action_joint"],  # 6 joint angles and 1 gripper
+    },
+    "action.ee_pose": {
+        "dtype": "float32",
+        "shape": (6,),
+        "names": ["action_ee_pose"],  # x, y, z, roll, pitch, yaw
+    },
+    "action.delta_q": {
+        "dtype": "float32",
+        "shape": (7,),
+        "names": ["action_delta_q"],  # 6 delta joint angles and 1 gripper
     },
     "obj_init": {
         "dtype": "float32",
         "shape": (6,),
-        "names": ["obj_init"], # just the initial position of the object. Not used in training.
+        "names": ["obj_init"],  # just the initial position of the object. Not used in training.
     },
 },
-
 ```
 
 This will make the dataset on './demo_data' folder, which will look like this,
