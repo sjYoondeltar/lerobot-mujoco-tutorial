@@ -36,7 +36,7 @@ from lerobot.common.datasets.utils import dataset_to_policy_features, write_json
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def load_policy(policy_type, ckpt_dir):
+def load_policy(policy_type, ckpt_dir, action_type='joint'):
     """Load a trained ACT, Diffusion, or VQBeT Policy from checkpoint"""
     print(f"Attempting to load {policy_type.upper()} policy from: {ckpt_dir}")
     if not os.path.exists(ckpt_dir):
@@ -49,7 +49,37 @@ def load_policy(policy_type, ckpt_dir):
         print("Loading dataset metadata...")
         dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
         features = dataset_to_policy_features(dataset_metadata.features)
-        output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+        
+        # Filter output features based on selected action type if needed
+        if policy_type == 'act':
+            if action_type == 'joint':
+                output_features = {k: v for k, v in features.items() if k == "action.joint" and v.type is FeatureType.ACTION}
+            elif action_type == 'ee_pose':
+                output_features = {k: v for k, v in features.items() if k == "action.ee_pose" and v.type is FeatureType.ACTION}
+            elif action_type == 'delta_q':
+                output_features = {k: v for k, v in features.items() if k == "action.delta_q" and v.type is FeatureType.ACTION}
+            else:
+                print(f"Unknown action type: {action_type}. Using all action features.")
+                output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+            
+            # 키 값 출력해서 디버깅
+            print(f"Available features: {list(features.keys())}")
+            print(f"Selected output features for {action_type}: {list(output_features.keys())}")
+            
+            # 출력 특성이 비어있는지 확인
+            if not output_features:
+                print(f"WARNING: No output features found for action_type '{action_type}'")
+                print("Available feature types in dataset:")
+                for k, v in features.items():
+                    print(f"  - {k}: type={v.type}, shape={v.shape}")
+                
+                # 폴백 솔루션: 전체 액션 타입 사용
+                print("Falling back to using all action features")
+                output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+        else:
+            # For non-ACT policies, use all action features
+            output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+        
         input_features = {key: ft for key, ft in features.items() if key not in output_features}
         
         # Check if config.json exists in the checkpoint directory to determine if wrist_image is used
@@ -91,6 +121,15 @@ def load_policy(policy_type, ckpt_dir):
                 n_action_steps=1, 
                 temporal_ensemble_coeff=0.9 # Example ACT specific param
             )
+            
+            # Adjust the checkpoint directory to include the action type
+            act_ckpt_dir = os.path.join(ckpt_dir, action_type)
+            if os.path.exists(act_ckpt_dir):
+                print(f"Using action-specific checkpoint: {act_ckpt_dir}")
+                ckpt_dir = act_ckpt_dir
+            else:
+                print(f"Action-specific checkpoint not found at {act_ckpt_dir}")
+                print(f"Checking for checkpoint at {ckpt_dir}...")
             
             # Load the ACT policy from the checkpoint with config and dataset stats
             policy = ACTPolicy.from_pretrained(
@@ -442,6 +481,13 @@ def main():
         help="Type of policy to load ('act', 'diffusion', or 'vqbet')."
     )
     parser.add_argument(
+        "--action_type", 
+        type=str, 
+        default='joint', 
+        choices=['joint', 'ee_pose', 'delta_q'], 
+        help="Type of action to use ('joint', 'ee_pose', or 'delta_q'). Only applicable for ACT policy."
+    )
+    parser.add_argument(
         "--ckpt_dir", 
         type=str, 
         default=None, 
@@ -475,7 +521,7 @@ def main():
         print(f"--ckpt_dir not specified, using default: {ckpt_dir}")
 
     # Load policy
-    policy, config = load_policy(args.policy_type, ckpt_dir)
+    policy, config = load_policy(args.policy_type, ckpt_dir, args.action_type)
     if policy is None:
         print("Failed to load policy. Exiting.")
         return
