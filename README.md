@@ -151,7 +151,7 @@ Train the ACT model on your custom dataset. In this example, we set chunk_size a
 
 You can choose from three action types for training:
 - `joint`: Uses joint angles for control (default)
-- `ee_pose`: Uses end-effector pose (x,y,z,roll,pitch,yaw)
+- `ee_pose`: Uses end-effector pose (x,y,z,roll,pitch,yaw,gripper)
 - `delta_q`: Uses delta joint angles (changes from current position)
 
 The trained checkpoint will be saved in './ckpt/act_y/{action_type}' folder.
