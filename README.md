@@ -117,13 +117,29 @@ The overlayed images on the top right and bottom right are from the dataset.
 
 ## 3. Train Action-Chunking-Transformer (ACT)
 
-Run [3.train.ipynb](3.train.ipynb)
+Run [3.train.ipynb](3.train.ipynb) or use the command-line script:
+
+```bash
+# Train ACT with joint angles (default)
+python scripts/act/train.py --action_type joint
+
+# Train ACT with end-effector pose
+python scripts/act/train.py --action_type ee_pose
+
+# Train ACT with delta joint angles
+python scripts/act/train.py --action_type delta_q
+```
 
 **This takes around 30~60 mins**.
 
 Train the ACT model on your custom dataset. In this example, we set chunk_size as 10. 
 
-The trained checkpoint will be saved in './ckpt/act_y' folder.
+You can choose from three action types for training:
+- `joint`: Uses joint angles for control (default)
+- `ee_pose`: Uses end-effector pose (x,y,z,roll,pitch,yaw)
+- `delta_q`: Uses delta joint angles (changes from current position)
+
+The trained checkpoint will be saved in './ckpt/act_y/{action_type}' folder.
 
 To evaluate the policy on the dataset, you can calculate the error between ground-truth actions from the dataset.
 
@@ -160,11 +176,12 @@ You can download pre-trained checkpoints from [google drive](https://drive.googl
 Use the following command structure:
 
 ```bash
-python scripts/deploy.py --policy_type <type> [--ckpt_dir <path_to_checkpoint>] [--xml_path <path_to_xml>] [--max_steps <steps>] [--control_hz <hz>]
+python scripts/deploy.py --policy_type <type> [--action_type <action_type>] [--ckpt_dir <path_to_checkpoint>] [--xml_path <path_to_xml>] [--max_steps <steps>] [--control_hz <hz>]
 ```
 
 Arguments:
-- `--policy_type`: Required. Choose either `act` or `diffusion`.
+- `--policy_type`: Required. Choose either `act`, `diffusion` or `vqbet`.
+- `--action_type`: Optional. Choose from `joint`, `ee_pose`, or `delta_q`. Defaults to `joint`.
 - `--ckpt_dir`: Optional. Path to the checkpoint directory. Defaults to `ckpt/act_y` or `ckpt/diffusion_y` based on `--policy_type`.
 - `--xml_path`: Optional. Path to the MuJoCo scene XML file. Defaults to `./asset/example_scene_y.xml`.
 - `--max_steps`: Optional. Maximum simulation steps. Defaults to `1000`.
@@ -172,9 +189,17 @@ Arguments:
 
 **Examples:**
 
-*   **Deploy ACT policy (using default checkpoint path `ckpt/act_y`):**
+*   **Deploy ACT policy with joint angles (default):**
     ```bash
-    python scripts/deploy.py --policy_type act
+    python scripts/deploy.py --policy_type act --action_type joint
+    ```
+*   **Deploy ACT policy with end-effector pose:**
+    ```bash
+    python scripts/deploy.py --policy_type act --action_type ee_pose
+    ```
+*   **Deploy ACT policy with delta joint angles:**
+    ```bash
+    python scripts/deploy.py --policy_type act --action_type delta_q
     ```
 *   **Deploy Diffusion policy (specifying a checkpoint path):**
     ```bash
@@ -183,7 +208,7 @@ Arguments:
 
 <img src="./media/rollout.gif" width="480" height="360" controls></img>
 
-The script will load the specified policy and deploy it in the MuJoCo simulation environment.
+The script will load the specified policy and deploy it in the MuJoCo simulation environment. The environment's action type will be automatically set to match the trained model's action type.
 
 ## Acknowledgements
 - The asset for the robotis-omy manipulator is from [robotis_mujoco_menagerie](https://github.com/ROBOTIS-GIT/robotis_mujoco_menagerie/tree/main).
