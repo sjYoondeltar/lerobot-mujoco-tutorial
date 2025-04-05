@@ -101,8 +101,9 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
         dataset_metadata: Dataset metadata
         action_type_ckpt_dir: Checkpoint directory for the specific action type
     """
-    # Load dataset metadata
-    dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+    # 액션 타입에 따라 데이터셋 경로 설정
+    dataset_root = os.path.join('./demo_data', action_type)
+    dataset_metadata = LeRobotDatasetMetadata(f"omy_pnp_{action_type}", root=dataset_root)
     features = dataset_to_policy_features(dataset_metadata.features)
     
     # 디버깅: 사용 가능한 특성 출력
@@ -111,28 +112,18 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
     for k, v in features.items():
         print(f"  - {k}: type={v.type if hasattr(v, 'type') else 'None'}, shape={v.shape if hasattr(v, 'shape') else 'None'}")
     
-    # Filter output features based on selected action type
-    if action_type == 'joint':
-        output_features = {k: v for k, v in features.items() if k == "action.joint" and v.type is FeatureType.ACTION}
-    elif action_type == 'ee_pose':
-        output_features = {k: v for k, v in features.items() if k == "action.ee_pose" and v.type is FeatureType.ACTION}
-    elif action_type == 'delta_q':
-        output_features = {k: v for k, v in features.items() if k == "action.delta_q" and v.type is FeatureType.ACTION}
-    else:
-        raise ValueError(f"Unknown action type: {action_type}")
-    
-    # 선택된 output_features 확인
-    print(f"Selected output features for {action_type}: {list(output_features.keys())}")
+    # 액션 관련 feature 찾기
+    output_features = {k: v for k, v in features.items() if k == "action" and v.type is FeatureType.ACTION}
     
     # output_features가 비어있는지 확인
     if not output_features:
         print(f"WARNING: No output features found for action_type '{action_type}'")
-        print("Dataset might not contain the requested action type.")
-        print("Make sure you've collected data with the appropriate action types.")
+        print("Dataset might not contain the 'action' key.")
+        print(f"Make sure you've collected data with action_type='{action_type}'.")
         raise ValueError(f"No features found for action type: {action_type}")
     
+    # 입력 특성 설정
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
-    # input_features.pop("observation.wrist_image")
 
     # Create policy configuration
     cfg = DiffusionConfig(
@@ -163,13 +154,14 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
     return policy, dataset_metadata, action_type_ckpt_dir
 
 
-def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig) -> LeRobotDataset:
+def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig, action_type: str) -> LeRobotDataset:
     """
     Prepare dataset for training.
     
     Args:
         dataset_metadata: Metadata for the dataset
         cfg: Policy configuration
+        action_type: Type of action to train with
         
     Returns:
         dataset: Dataset ready for training
@@ -193,11 +185,14 @@ def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig)
         transforms.Lambda(lambda x: x.clamp(0, 1))
     ])
     
+    # 액션 타입에 따라 데이터셋 경로 설정
+    dataset_root = os.path.join('./demo_data', action_type)
+    
     # Create dataset
     dataset = LeRobotDataset(
-        "omy_pnp", 
+        f"omy_pnp_{action_type}", 
         delta_timestamps=delta_timestamps, 
-        root='./demo_data', 
+        root=dataset_root, 
         image_transforms=transform
     )
     
@@ -298,6 +293,7 @@ def evaluate_policy(
     print("Evaluating policy...")
     
     for batch in test_dataloader:
+        # 'action' 키를 직접 사용
         inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
         action = policy.select_action(inp_batch)
         
@@ -408,6 +404,8 @@ def main():
     parser.add_argument('--action_type', type=str, default='joint', 
                         choices=['joint', 'ee_pose', 'delta_q'],
                         help='Action type to use for training: joint, ee_pose, or delta_q')
+    parser.add_argument('--load_ckpt', action='store_true',
+                        help='Whether to load from checkpoint')
     args = parser.parse_args()
     
     # Configuration
@@ -420,39 +418,15 @@ def main():
     
     # Set action type from command line argument
     ACTION_TYPE = args.action_type
-    print(f"Training Diffusion Policy with action type: {ACTION_TYPE} on device: {DEVICE}")
+    print(f"\n=== Training Diffusion Policy with action type: {ACTION_TYPE} on device: {DEVICE} ===\n")
     
-    # 먼저 데이터셋 내용을 검증하고 필요한 데이터가 있는지 확인
     try:
-        # 데이터셋 메타데이터 로드
-        dataset_metadata = LeRobotDatasetMetadata(REPO_NAME, root=ROOT)
-        print(f"Dataset contains the following features:")
-        for k, v in dataset_metadata.features.items():
-            print(f"  - {k}: {v}")
-        
-        # 필요한 액션 타입이 있는지 확인
-        action_feature_name = f"action.{ACTION_TYPE}"
-        if action_feature_name not in dataset_metadata.features:
-            print(f"ERROR: The dataset does not contain the required feature '{action_feature_name}'")
-            print(f"Available features: {list(dataset_metadata.features.keys())}")
-            print("Please collect data with this feature or choose another action type.")
-            return
-        else:
-            print(f"Found required feature '{action_feature_name}' in dataset")
-    except Exception as e:
-        print(f"Error while validating dataset: {e}")
-        print("Please make sure the dataset exists at the correct location.")
-        import traceback
-        traceback.print_exc()
-        return
-    
-    # Create or load policy
-    try:
+        # 정책 생성 또는 로드
         policy, dataset_metadata, action_type_ckpt_dir = create_or_load_policy(
-            CKPT_DIR, action_type=ACTION_TYPE, load_ckpt=False)
+            CKPT_DIR, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt)
         
         # Prepare dataset
-        dataset = prepare_data(dataset_metadata, policy.config)
+        dataset = prepare_data(dataset_metadata, policy.config, ACTION_TYPE)
         print(f"Dataset loaded with {dataset.num_episodes} episodes")
         
         # Train the policy

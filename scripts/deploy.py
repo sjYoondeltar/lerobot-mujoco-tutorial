@@ -47,38 +47,43 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
     try:
         # Get dataset metadata and prepare features (common for both)
         print("Loading dataset metadata...")
-        dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+        
+        # 액션 타입에 따라 데이터셋 경로 설정
+        dataset_root = os.path.join('./demo_data', action_type)
+        dataset_metadata = LeRobotDatasetMetadata(f"omy_pnp_{action_type}", root=dataset_root)
         features = dataset_to_policy_features(dataset_metadata.features)
         
-        # Filter output features based on selected action type if needed
-        if policy_type == 'act':
+        # 액션 관련 feature 찾기
+        output_features = {k: v for k, v in features.items() if k == "action" and v.type is FeatureType.ACTION}
+        
+        # 디버깅: 사용 가능한 특성 출력
+        print(f"Available features: {list(features.keys())}")
+        print(f"Selected output features: {list(output_features.keys())}")
+        
+        # output_features가 비어있는지 확인
+        if not output_features:
+            print(f"WARNING: No output features found for action_type '{action_type}'")
+            print(f"Checking if traditional format dataset exists in root directory...")
+            
+            # 기존 방식 데이터셋 확인 (하위 호환성 제공)
+            legacy_dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+            legacy_features = dataset_to_policy_features(legacy_dataset_metadata.features)
+            
+            # 기존 방식 액션 특성 필터링
             if action_type == 'joint':
-                output_features = {k: v for k, v in features.items() if k == "action.joint" and v.type is FeatureType.ACTION}
+                output_features = {k: v for k, v in legacy_features.items() if k == "action.joint" and v.type is FeatureType.ACTION}
             elif action_type == 'ee_pose':
-                output_features = {k: v for k, v in features.items() if k == "action.ee_pose" and v.type is FeatureType.ACTION}
+                output_features = {k: v for k, v in legacy_features.items() if k == "action.ee_pose" and v.type is FeatureType.ACTION}
             elif action_type == 'delta_q':
-                output_features = {k: v for k, v in features.items() if k == "action.delta_q" and v.type is FeatureType.ACTION}
+                output_features = {k: v for k, v in legacy_features.items() if k == "action.delta_q" and v.type is FeatureType.ACTION}
+            
+            if output_features:
+                print(f"Found legacy format action features: {list(output_features.keys())}")
+                dataset_metadata = legacy_dataset_metadata
+                features = legacy_features
             else:
-                print(f"Unknown action type: {action_type}. Using all action features.")
-                output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
-            
-            # 키 값 출력해서 디버깅
-            print(f"Available features: {list(features.keys())}")
-            print(f"Selected output features for {action_type}: {list(output_features.keys())}")
-            
-            # 출력 특성이 비어있는지 확인
-            if not output_features:
-                print(f"WARNING: No output features found for action_type '{action_type}'")
-                print("Available feature types in dataset:")
-                for k, v in features.items():
-                    print(f"  - {k}: type={v.type}, shape={v.shape}")
-                
-                # 폴백 솔루션: 전체 액션 타입 사용
-                print("Falling back to using all action features")
-                output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
-        else:
-            # For non-ACT policies, use all action features
-            output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+                print("No action features found. Please collect data first.")
+                return None, None
         
         input_features = {key: ft for key, ft in features.items() if key not in output_features}
         
@@ -148,6 +153,15 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
                 n_action_steps=1 # Match training parameter
             )
 
+            # Adjust the checkpoint directory to include the action type
+            diffusion_ckpt_dir = os.path.join(ckpt_dir, action_type)
+            if os.path.exists(diffusion_ckpt_dir):
+                print(f"Using action-specific checkpoint: {diffusion_ckpt_dir}")
+                ckpt_dir = diffusion_ckpt_dir
+            else:
+                print(f"Action-specific checkpoint not found at {diffusion_ckpt_dir}")
+                print(f"Checking for checkpoint at {ckpt_dir}...")
+
             # Load the trained policy with robust error handling
             print(f"Loading trained policy from checkpoint: {ckpt_dir}")
             try:
@@ -213,6 +227,15 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
                 gpt_n_layer=8,
                 gpt_n_head=8
             )
+            
+            # Adjust the checkpoint directory to include the action type
+            vqbet_ckpt_dir = os.path.join(ckpt_dir, action_type)
+            if os.path.exists(vqbet_ckpt_dir):
+                print(f"Using action-specific checkpoint: {vqbet_ckpt_dir}")
+                ckpt_dir = vqbet_ckpt_dir
+            else:
+                print(f"Action-specific checkpoint not found at {vqbet_ckpt_dir}")
+                print(f"Checking for checkpoint at {ckpt_dir}...")
             
             # First, create a policy instance
             policy = VQBeTPolicy(cfg, dataset_stats=dataset_metadata.stats)
