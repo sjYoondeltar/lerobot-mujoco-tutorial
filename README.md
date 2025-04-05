@@ -85,8 +85,8 @@ features={
     },
     "action.ee_pose": {
         "dtype": "float32",
-        "shape": (6,),
-        "names": ["action_ee_pose"],  # x, y, z, roll, pitch, yaw
+        "shape": (7,),
+        "names": ["action_ee_pose"],  # x, y, z, roll, pitch, yaw, gripper
     },
     "action.delta_q": {
         "dtype": "float32",
