@@ -269,7 +269,7 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
 
 def main():
     # Configuration
-    SEED = 0  # Set to None to randomize object positions
+    SEED = None  # Set to None to randomize object positions
     REPO_NAME = 'omy_pnp'
     NUM_DEMO = 1  # Number of demonstrations to collect
     ROOT = "./demo_data"  # The root directory to save the demonstrations
