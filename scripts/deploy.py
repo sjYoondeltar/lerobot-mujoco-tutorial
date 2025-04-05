@@ -2,9 +2,9 @@
 # coding: utf-8
 
 """
-Deploy ACT or Diffusion Policy
+Deploy ACT, Diffusion, or VQBeT Policy
 
-This script loads a trained ACT or Diffusion policy model and deploys it in a MuJoCo 
+This script loads a trained ACT, Diffusion, or VQBeT policy model and deploys it in a MuJoCo 
 simulation environment. The model will control a robot to perform the pick and 
 place task that it was trained on. Select the policy type using the --policy_type argument.
 """
@@ -25,6 +25,8 @@ from lerobot.common.policies.act.configuration_act import ACTConfig
 from lerobot.common.policies.act.modeling_act import ACTPolicy
 from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
 from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.common.policies.vqbet.configuration_vqbet import VQBeTConfig
+from lerobot.common.policies.vqbet.modeling_vqbet import VQBeTPolicy
 from lerobot.configs.types import FeatureType
 from lerobot.common.datasets.factory import resolve_delta_timestamps
 from lerobot.common.datasets.utils import dataset_to_policy_features, write_json, serialize_dict
@@ -35,7 +37,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def load_policy(policy_type, ckpt_dir):
-    """Load a trained ACT or Diffusion Policy from checkpoint"""
+    """Load a trained ACT, Diffusion, or VQBeT Policy from checkpoint"""
     print(f"Attempting to load {policy_type.upper()} policy from: {ckpt_dir}")
     if not os.path.exists(ckpt_dir):
         print(f"Error: Checkpoint directory {ckpt_dir} does not exist.")
@@ -144,8 +146,133 @@ def load_policy(policy_type, ckpt_dir):
                 except Exception as e2:
                     print(f"Error with alternate loading method: {e2}")
                     return None, None
+        
+        elif policy_type == 'vqbet':
+            # Configure VQBeT policy
+            print("Configuring VQBeT policy...")
+            
+            # VQBeT only supports one image input
+            image_keys = [key for key in input_features.keys() if key.startswith("observation.") and key.endswith("image")]
+            if len(image_keys) > 1:
+                print(f"Found multiple image inputs: {image_keys}")
+                print(f"VQBeT only supports one image input. Keeping 'observation.image' and removing others.")
+                for key in image_keys:
+                    if key != "observation.image":
+                        input_features.pop(key, None)
+            
+            # Configure VQBeT
+            cfg = VQBeTConfig(
+                input_features=input_features, 
+                output_features=output_features,
+                n_obs_steps=5,
+                n_action_pred_token=5,  # Updated to match training config 
+                action_chunk_size=5,
+                vqvae_n_embed=1024,  # codebook size
+                vqvae_embedding_dim=128,  # latent dimension
+                vision_backbone="resnet18",
+                spatial_softmax_num_keypoints=32,
+                gpt_n_layer=8,
+                gpt_n_head=8
+            )
+            
+            # First, create a policy instance
+            policy = VQBeTPolicy(cfg, dataset_stats=dataset_metadata.stats)
+            
+            # Check for VQ-VAE specific checkpoint
+            vqvae_ckpt_dir = os.path.join(ckpt_dir, "vqvae_only")
+            vqvae_final_path = os.path.join(vqvae_ckpt_dir, "final_model.pt")
+            
+            # Try to load VQ-VAE weights if available
+            vqvae_loaded = False
+            if os.path.exists(vqvae_final_path):
+                try:
+                    print(f"Found VQ-VAE checkpoint at {vqvae_final_path}. Loading...")
+                    vqvae_ckpt = torch.load(vqvae_final_path, map_location=DEVICE)
+                    
+                    # Extract just VQ-VAE related weights
+                    vqvae_state_dict = {}
+                    full_state_dict = vqvae_ckpt['model_state_dict']
+                    
+                    # Filter for VQ-VAE related parameters only
+                    for name, param in full_state_dict.items():
+                        if any(part in name for part in ['encoder', 'decoder', 'codebook', 'quantizer', 'vqvae']):
+                            vqvae_state_dict[name] = param
+                    
+                    # Load the VQ-VAE weights (partial state dict)
+                    missing_keys, unexpected_keys = policy.load_state_dict(vqvae_state_dict, strict=False)
+                    print(f"Loaded VQ-VAE weights. Missing keys: {len(missing_keys)}, Unexpected keys: {len(unexpected_keys)}")
+                    vqvae_loaded = True
+                except Exception as e:
+                    print(f"Error loading VQ-VAE checkpoint: {e}")
+                    print("Will attempt to load full model instead.")
+            
+            # Now try to load the full model (keeping VQ-VAE weights if they were loaded)
+            try:
+                # First try standard loading method with from_pretrained
+                if not vqvae_loaded:
+                    print("Loading full VQBeT model...")
+                    policy = VQBeTPolicy.from_pretrained(
+                        ckpt_dir,
+                        config=cfg,
+                        dataset_stats=dataset_metadata.stats
+                    )
+                else:
+                    # If VQ-VAE was loaded, only load the remaining parts
+                    print("Loading full VQBeT model weights on top of VQ-VAE weights...")
+                    # Try different possible weight file locations
+                    weights_path = os.path.join(ckpt_dir, "model.safetensors")
+                    if not os.path.exists(weights_path):
+                        weights_path = os.path.join(ckpt_dir, "pytorch_model.bin")
+                        
+                    if os.path.exists(weights_path):
+                        if weights_path.endswith('.safetensors'):
+                            from safetensors.torch import load_file
+                            state_dict = load_file(weights_path, device=str(DEVICE))
+                        else:
+                            state_dict = torch.load(weights_path, map_location=DEVICE)
+                        
+                        # Load with strict=False to avoid errors with already loaded VQ-VAE weights
+                        missing_keys, unexpected_keys = policy.load_state_dict(state_dict, strict=False)
+                        print(f"Loaded full model weights. Missing keys: {len(missing_keys)}, Unexpected keys: {len(unexpected_keys)}")
+                    else:
+                        print(f"Warning: Full model weights not found at {weights_path}")
+                        if vqvae_loaded:
+                            print("Proceeding with only VQ-VAE weights loaded.")
+                        else:
+                            print("Error: No weights loaded for VQBeT model.")
+                            return None, None
+            except Exception as e:
+                print(f"Error loading full VQBeT model: {e}")
+                
+                # If VQ-VAE is already loaded, we might still be able to proceed
+                if not vqvae_loaded:
+                    print("Trying alternate loading method...")
+                    try:
+                        weights_path = os.path.join(ckpt_dir, "model.safetensors")
+                        if not os.path.exists(weights_path):
+                            weights_path = os.path.join(ckpt_dir, "pytorch_model.bin")
+                            
+                        if os.path.exists(weights_path):
+                            print(f"Loading weights from {weights_path}")
+                            if weights_path.endswith('.safetensors'):
+                                from safetensors.torch import load_file
+                                state_dict = load_file(weights_path, device=str(DEVICE))
+                            else:
+                                state_dict = torch.load(weights_path, map_location=DEVICE)
+                            
+                            policy.load_state_dict(state_dict)
+                            print("Successfully loaded model weights via alternate method.")
+                        else:
+                            print(f"Error: Weights file not found in {ckpt_dir}.")
+                            return None, None
+                    except Exception as e2:
+                        print(f"Error with alternate loading method: {e2}")
+                        return None, None
+                else:
+                    print("Proceeding with only VQ-VAE weights loaded, as full model loading failed.")
+        
         else:
-            print(f"Error: Unknown policy type '{policy_type}'. Choose 'act' or 'diffusion'.")
+            print(f"Error: Unknown policy type '{policy_type}'. Choose 'act', 'diffusion', or 'vqbet'.")
             return None, None
 
         # Move policy to the correct device and set to evaluation mode
@@ -235,11 +362,30 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
                              # Fallback or error handling needed here - e.g., use zeros
                              action_dim = policy.config.output_features["action.joint_angle"].shape[-1] # Infer action dim
                              action = np.zeros(action_dim)
+                    elif policy_type == 'vqbet':
+                        # More robust handling for VQBeT outputs
+                        if isinstance(action_output, torch.Tensor):
+                            # Try to use policy's built-in methods first
+                            if hasattr(policy, 'detokenize_action'):
+                                print(f"Detokenizing action output: {action_output}")
+                                action = policy.detokenize_action(action_output)
+                                action = action[0].cpu().numpy()  # Take first action
+                            else:
+                                # Direct handling as fallback
+                                print(f"Direct handling action output: {action_output}")
+                                action = action_output.cpu().numpy()
+                                if action.ndim > 1:
+                                    action = action[0]  # Take first action
+                        else:
+                            # Handle unexpected output format
+                            print(f"Warning: Unexpected VQBeT action output format: {type(action_output)}")
+                            action_dim = 7  # Hardcoded for robot joint angles
+                            action = np.zeros(action_dim)
 
                 if action is None:
                      print("Error: Failed to determine action from policy output.")
                      # Handle error: maybe stop, or use a default action
-                     action_dim = policy.config.output_features["action.joint_angle"].shape[-1] # Infer action dim
+                     action_dim = 7  # Standard dimension for robot actions
                      action = np.zeros(action_dim) # Example: use zero action
 
                 # Ensure action is a flat numpy array
@@ -287,13 +433,13 @@ def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Deploy a trained policy (ACT or Diffusion) in a MuJoCo environment.")
+    parser = argparse.ArgumentParser(description="Deploy a trained policy (ACT, Diffusion, or VQBeT) in a MuJoCo environment.")
     parser.add_argument(
         "--policy_type", 
         type=str, 
         required=True, 
-        choices=['act', 'diffusion'], 
-        help="Type of policy to load ('act' or 'diffusion')."
+        choices=['act', 'diffusion', 'vqbet'], 
+        help="Type of policy to load ('act', 'diffusion', or 'vqbet')."
     )
     parser.add_argument(
         "--ckpt_dir", 
