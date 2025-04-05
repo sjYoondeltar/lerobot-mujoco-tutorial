@@ -7,11 +7,6 @@ Deploy ACT, Diffusion, or VQBeT Policy
 This script loads a trained ACT, Diffusion, or VQBeT policy model and deploys it in a MuJoCo 
 simulation environment. The model will control a robot to perform the pick and 
 place task that it was trained on. Select the policy type using the --policy_type argument.
-
-Available action types:
-- 'joint': Deploy model trained with joint angles (action.joint)
-- 'ee_pose': Deploy model trained with end-effector pose (action.ee_pose)
-- 'delta_q': Deploy model trained with delta joint angles (action.delta_q)
 """
 
 import os
@@ -42,24 +37,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def load_policy(policy_type, ckpt_dir, action_type='joint'):
-    """
-    Load a trained ACT, Diffusion, or VQBeT Policy from checkpoint
-    
-    Args:
-        policy_type: Type of policy ('act', 'diffusion', or 'vqbet')
-        ckpt_dir: Path to the checkpoint directory
-        action_type: Type of action ('joint', 'ee_pose', or 'delta_q')
-    """
-    # Adjust the checkpoint directory to include the action type for ACT policy
-    if policy_type == 'act':
-        action_type_ckpt_dir = os.path.join(ckpt_dir, action_type)
-        if os.path.exists(action_type_ckpt_dir):
-            ckpt_dir = action_type_ckpt_dir
-            print(f"Using action-specific checkpoint: {ckpt_dir}")
-        else:
-            print(f"Warning: Action-specific checkpoint directory {action_type_ckpt_dir} not found.")
-            print(f"Falling back to: {ckpt_dir}")
-    
+    """Load a trained ACT, Diffusion, or VQBeT Policy from checkpoint"""
     print(f"Attempting to load {policy_type.upper()} policy from: {ckpt_dir}")
     if not os.path.exists(ckpt_dir):
         print(f"Error: Checkpoint directory {ckpt_dir} does not exist.")
@@ -69,23 +47,43 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
     try:
         # Get dataset metadata and prepare features (common for both)
         print("Loading dataset metadata...")
-        dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+        
+        # 액션 타입에 따라 데이터셋 경로 설정
+        dataset_root = os.path.join('./demo_data', action_type)
+        dataset_metadata = LeRobotDatasetMetadata(f"omy_pnp_{action_type}", root=dataset_root)
         features = dataset_to_policy_features(dataset_metadata.features)
         
-        # Filter output features based on selected action type if needed
-        if policy_type == 'act':
+        # 액션 관련 feature 찾기
+        output_features = {k: v for k, v in features.items() if k == "action" and v.type is FeatureType.ACTION}
+        
+        # 디버깅: 사용 가능한 특성 출력
+        print(f"Available features: {list(features.keys())}")
+        print(f"Selected output features: {list(output_features.keys())}")
+        
+        # output_features가 비어있는지 확인
+        if not output_features:
+            print(f"WARNING: No output features found for action_type '{action_type}'")
+            print(f"Checking if traditional format dataset exists in root directory...")
+            
+            # 기존 방식 데이터셋 확인 (하위 호환성 제공)
+            legacy_dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+            legacy_features = dataset_to_policy_features(legacy_dataset_metadata.features)
+            
+            # 기존 방식 액션 특성 필터링
             if action_type == 'joint':
-                output_features = {k: v for k, v in features.items() if k == "action.joint" and v.type is FeatureType.ACTION}
+                output_features = {k: v for k, v in legacy_features.items() if k == "action.joint" and v.type is FeatureType.ACTION}
             elif action_type == 'ee_pose':
-                output_features = {k: v for k, v in features.items() if k == "action.ee_pose" and v.type is FeatureType.ACTION}
+                output_features = {k: v for k, v in legacy_features.items() if k == "action.ee_pose" and v.type is FeatureType.ACTION}
             elif action_type == 'delta_q':
-                output_features = {k: v for k, v in features.items() if k == "action.delta_q" and v.type is FeatureType.ACTION}
+                output_features = {k: v for k, v in legacy_features.items() if k == "action.delta_q" and v.type is FeatureType.ACTION}
+            
+            if output_features:
+                print(f"Found legacy format action features: {list(output_features.keys())}")
+                dataset_metadata = legacy_dataset_metadata
+                features = legacy_features
             else:
-                print(f"Unknown action type: {action_type}. Using all action features.")
-                output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
-        else:
-            # For non-ACT policies, use all action features
-            output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+                print("No action features found. Please collect data first.")
+                return None, None
         
         input_features = {key: ft for key, ft in features.items() if key not in output_features}
         
@@ -120,7 +118,7 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
 
         if policy_type == 'act':
             # Create ACT config
-            print(f"Configuring ACT policy with action type: {action_type}...")
+            print("Configuring ACT policy...")
             cfg = ACTConfig(
                 input_features=input_features, 
                 output_features=output_features, 
@@ -128,6 +126,15 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
                 n_action_steps=1, 
                 temporal_ensemble_coeff=0.9 # Example ACT specific param
             )
+            
+            # Adjust the checkpoint directory to include the action type
+            act_ckpt_dir = os.path.join(ckpt_dir, action_type)
+            if os.path.exists(act_ckpt_dir):
+                print(f"Using action-specific checkpoint: {act_ckpt_dir}")
+                ckpt_dir = act_ckpt_dir
+            else:
+                print(f"Action-specific checkpoint not found at {act_ckpt_dir}")
+                print(f"Checking for checkpoint at {ckpt_dir}...")
             
             # Load the ACT policy from the checkpoint with config and dataset stats
             policy = ACTPolicy.from_pretrained(
@@ -145,6 +152,15 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
                 horizon=16,  # Match training parameter
                 n_action_steps=1 # Match training parameter
             )
+
+            # Adjust the checkpoint directory to include the action type
+            diffusion_ckpt_dir = os.path.join(ckpt_dir, action_type)
+            if os.path.exists(diffusion_ckpt_dir):
+                print(f"Using action-specific checkpoint: {diffusion_ckpt_dir}")
+                ckpt_dir = diffusion_ckpt_dir
+            else:
+                print(f"Action-specific checkpoint not found at {diffusion_ckpt_dir}")
+                print(f"Checking for checkpoint at {ckpt_dir}...")
 
             # Load the trained policy with robust error handling
             print(f"Loading trained policy from checkpoint: {ckpt_dir}")
@@ -211,6 +227,15 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
                 gpt_n_layer=8,
                 gpt_n_head=8
             )
+            
+            # Adjust the checkpoint directory to include the action type
+            vqbet_ckpt_dir = os.path.join(ckpt_dir, action_type)
+            if os.path.exists(vqbet_ckpt_dir):
+                print(f"Using action-specific checkpoint: {vqbet_ckpt_dir}")
+                ckpt_dir = vqbet_ckpt_dir
+            else:
+                print(f"Action-specific checkpoint not found at {vqbet_ckpt_dir}")
+                print(f"Checking for checkpoint at {ckpt_dir}...")
             
             # First, create a policy instance
             policy = VQBeTPolicy(cfg, dataset_stats=dataset_metadata.stats)
@@ -315,72 +340,46 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
         # Move policy to the correct device and set to evaluation mode
         policy.to(DEVICE)
         policy.eval()  
-        print(f"Successfully loaded {policy_type.upper()} policy with action type {action_type}")
+        print(f"{policy_type.upper()} Policy loaded successfully from {ckpt_dir} to {DEVICE}")
         return policy, cfg
 
     except Exception as e:
-        print(f"An error occurred while loading policy: {e}")
+        print(f"An unexpected error occurred during policy loading: {e}")
         import traceback
         traceback.print_exc()
         return None, None
 
 
-def deploy_policy(learning_env, policy, policy_type, action_type='joint', max_steps=1000, control_hz=20):
-    """
-    Deploy a trained policy in a learning environment
+def deploy_policy(learning_env, policy, policy_type, max_steps=1000, control_hz=20):
+    """Deploy the loaded policy in the environment"""
+    print(f"Deploying {policy_type.upper()} policy...")
     
-    Args:
-        learning_env: MuJoCo environment
-        policy: Trained policy model
-        policy_type: Type of policy ('act', 'diffusion', 'vqbet')
-        action_type: Type of action ('joint', 'ee_pose', 'delta_q')
-        max_steps: Maximum number of steps to run
-        control_hz: Control frequency in Hz
-    """
-    print(f"Starting deployment with {policy_type.upper()} policy using {action_type} action type")
+    # Ensure model is on the correct device (redundant check, but safe)
+    model_device = next(policy.parameters()).device
+    print(f"Policy is on device: {model_device}")
+    if model_device != DEVICE:
+        print(f"Warning: Policy device ({model_device}) differs from target device ({DEVICE}). Moving policy...")
+        policy.to(DEVICE)
     
-    # Set the environment action type according to model's action type
-    if hasattr(learning_env, 'action_type') and hasattr(learning_env, 'state_type'):
-        # For SimpleEnv with action_type attribute, set it based on the loaded model
-        if action_type == 'joint':
-            learning_env.action_type = 'joint_angle'
-            print("Using joint_angle action type for environment")
-        elif action_type == 'ee_pose':
-            learning_env.action_type = 'eef_pose'
-            print("Using eef_pose action type for environment")
-        elif action_type == 'delta_q':
-            learning_env.action_type = 'delta_joint_angle'
-            print("Using delta_joint_angle action type for environment")
-        
-        # Set state type to match action type for best results
-        learning_env.state_type = 'ee_pose' if action_type == 'ee_pose' else 'joint_angle'
-        print(f"Using {learning_env.state_type} state type for environment")
+    # Environment and policy reset
+    learning_env.reset(seed=0)
+    policy.reset() 
     
-    # Setup image transformations
-    img_transform = torchvision.transforms.Compose([
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
-    ])
+    # Image transform
+    img_transform = torchvision.transforms.ToTensor()
     
-    # Check if the policy uses wrist image
-    uses_wrist_image = 'observation.wrist_image' in policy.config.input_features if hasattr(policy, 'config') else False
+    # Check if the policy uses wrist_image
+    uses_wrist_image = 'observation.wrist_image' in policy.config.input_features
+    print(f"Policy {'uses' if uses_wrist_image else 'does not use'} wrist camera images")
     
     step_count = 0
     done = False
     
     try:
-        print("Starting simulation...")
-        # Initial reset
-        learning_env.reset(seed=0)
-        policy.reset()
-        
-        # Main simulation loop
-        while not done and step_count < max_steps and learning_env.env.is_viewer_alive():
-            learning_env.step_env()
-            
+        while learning_env.env.is_viewer_alive():
+            # Step simulation physics (might not be needed depending on env step)
+            learning_env.step_env() # Assuming learning_env.step handles physics stepping if needed
+
             if learning_env.env.loop_every(HZ=control_hz):
                 # Get state and images
                 state = learning_env.get_ee_pose()
@@ -461,7 +460,7 @@ def deploy_policy(learning_env, policy, policy_type, action_type='joint', max_st
                 # Render
                 learning_env.render()
                 
-                # Check for success
+                # 성공 확인
                 done = learning_env.check_success()
                 if done:
                     print(f"Task completed successfully at step {step_count}!")
@@ -509,7 +508,7 @@ def main():
         type=str, 
         default='joint', 
         choices=['joint', 'ee_pose', 'delta_q'], 
-        help="Type of action used in the model ('joint', 'ee_pose', or 'delta_q')."
+        help="Type of action to use ('joint', 'ee_pose', or 'delta_q'). Only applicable for ACT policy."
     )
     parser.add_argument(
         "--ckpt_dir", 
@@ -561,25 +560,15 @@ def main():
     # Initialize the environment
     print(f"Initializing environment from: {args.xml_path}")
     try:
-        # Initialize with appropriate action_type based on the model's action type
-        if args.action_type == 'joint':
-            env_action_type = 'joint_angle'
-        elif args.action_type == 'ee_pose':
-            env_action_type = 'eef_pose'
-        elif args.action_type == 'delta_q':
-            env_action_type = 'delta_joint_angle'
-        else:
-            env_action_type = 'joint_angle'  # Default
-
-        pnp_env = SimpleEnv(args.xml_path, seed=0, action_type=env_action_type)
-        print(f"Environment initialized with action_type: {env_action_type}")
+        pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='joint_angle')
+        print("Environment initialized.")
     except Exception as e:
          print(f"Error initializing environment: {e}")
          return
     
     # Deploy policy
-    print(f"Deploying {args.policy_type.upper()} Policy with {args.action_type} action type in simulation...")
-    success = deploy_policy(pnp_env, policy, args.policy_type, args.action_type, args.max_steps, args.control_hz)
+    print(f"Deploying {args.policy_type.upper()} Policy in simulation...")
+    success = deploy_policy(pnp_env, policy, args.policy_type, args.max_steps, args.control_hz)
     
     if success:
          print("Deployment finished: Success!")

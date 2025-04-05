@@ -7,16 +7,11 @@ Train Action-Chunking-Transformer (ACT)
 This script trains an ACT model on the collected robot demonstration dataset.
 It takes approximately 30-60 minutes to train the model.
 The trained checkpoint will be saved in the './ckpt/act_y' folder.
-
-Available action types:
-- 'joint': Train with joint angles (action.joint)
-- 'ee_pose': Train with end-effector pose (action.ee_pose)
-- 'delta_q': Train with delta joint angles (action.delta_q)
 """
 
 import os
 import sys
-import argparse  # Added for command-line arguments
+import argparse
 
 # Add the project root directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -29,10 +24,42 @@ from torchvision import transforms # Import transforms
 from lerobot.common.policies.act.modeling_act import ACTPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
-from lerobot.common.datasets.utils import dataset_to_policy_features
-from lerobot.configs.types import FeatureType
+from lerobot.configs.types import FeatureType, PolicyFeature
 from lerobot.common.policies.act.configuration_act import ACTConfig
 from lerobot.common.datasets.factory import resolve_delta_timestamps
+
+
+def dataset_to_policy_features(features: dict[str, dict]) -> dict[str, PolicyFeature]:
+    # TODO(aliberts): Implement "type" in dataset features and simplify this
+    policy_features = {}
+    for key, ft in features.items():
+        shape = ft["shape"]
+        if ft["dtype"] in ["image", "video"]:
+            type = FeatureType.VISUAL
+            if len(shape) != 3:
+                raise ValueError(f"Number of dimensions of {key} != 3 (shape={shape})")
+
+            names = ft["names"]
+            # Backward compatibility for "channel" which is an error introduced in LeRobotDataset v2.0 for ported datasets.
+            if names[2] in ["channel", "channels"]:  # (h, w, c) -> (c, h, w)
+                shape = (shape[2], shape[0], shape[1])
+        elif key == "observation.environment_state":
+            type = FeatureType.ENV
+        elif key.startswith("observation"):
+            type = FeatureType.STATE
+        elif key == "action":
+            type = FeatureType.ACTION
+        elif key.startswith("action"):
+            type = FeatureType.ACTION
+        else:
+            continue
+
+        policy_features[key] = PolicyFeature(
+            type=type,
+            shape=shape,
+        )
+
+    return policy_features
 
 
 def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
@@ -44,23 +71,31 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
         action_type: Type of action to train with ('joint', 'ee_pose', or 'delta_q')
         load_ckpt: Whether to load from checkpoint
     """
-    dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+    # 액션 타입에 따라 데이터셋 경로 설정
+    dataset_root = os.path.join('./demo_data', action_type)
+    dataset_metadata = LeRobotDatasetMetadata(f"omy_pnp_{action_type}", root=dataset_root)
     features = dataset_to_policy_features(dataset_metadata.features)
     
-    # Filter output features based on selected action type
-    if action_type == 'joint':
-        output_features = {k: v for k, v in features.items() if k == "action.joint" and v.type is FeatureType.ACTION}
-    elif action_type == 'ee_pose':
-        output_features = {k: v for k, v in features.items() if k == "action.ee_pose" and v.type is FeatureType.ACTION}
-    elif action_type == 'delta_q':
-        output_features = {k: v for k, v in features.items() if k == "action.delta_q" and v.type is FeatureType.ACTION}
-    else:
-        raise ValueError(f"Unknown action type: {action_type}")
+    # 디버깅: 사용 가능한 특성 출력
+    print(f"Available features: {list(features.keys())}")
+    print("Feature types:")
+    for k, v in features.items():
+        print(f"  - {k}: type={v.type if hasattr(v, 'type') else 'None'}, shape={v.shape if hasattr(v, 'shape') else 'None'}")
     
+    # 액션 관련 feature 찾기
+    output_features = {k: v for k, v in features.items() if k == "action" and v.type is FeatureType.ACTION}
+    
+    # output_features가 비어있는지 확인
+    if not output_features:
+        print(f"WARNING: No output features found for action_type '{action_type}'")
+        print("Dataset might not contain the 'action' key.")
+        print(f"Make sure you've collected data with action_type='{action_type}'.")
+        raise ValueError(f"No features found for action type: {action_type}")
+    
+    # 입력 특성 설정
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
-    # input_features.pop("observation.wrist_image")
-
-    # Set up the configuration
+    
+    # 새로운 API 방식으로 설정
     cfg = ACTConfig(
         input_features=input_features, 
         output_features=output_features, 
@@ -76,14 +111,21 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
         policy = ACTPolicy.from_pretrained(action_type_ckpt_dir)
     else:
         print(f"Creating new policy for action type: {action_type}")
-        policy = ACTPolicy(cfg, dataset_stats=dataset_metadata.stats)
+        try:
+            policy = ACTPolicy(cfg, dataset_stats=dataset_metadata.stats)
+            print("ACTPolicy successfully created")
+        except Exception as e:
+            print(f"Error creating ACTPolicy: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     return policy, dataset_metadata, action_type_ckpt_dir
 
 
-def prepare_data(dataset_name, policy, dataset_metadata):
+def prepare_data(dataset_name, policy, dataset_metadata, action_type):
     """Prepare data for training using the new API"""
-    # Policy's config delta_timestamps resolution
+    # Policy의 config에서 delta_timestamps 해석
     delta_timestamps = resolve_delta_timestamps(policy.config, dataset_metadata)
     
     # Define image augmentations (excluding flips and rotations)
@@ -98,15 +140,18 @@ def prepare_data(dataset_name, policy, dataset_metadata):
         transforms.RandomErasing(p=1.0, scale=(0.01, 0.015), ratio=(0.95, 1.05), value=0),
     ])
 
-    # Create dataset with the transforms
+    # 액션 타입에 따라 데이터셋 경로 설정
+    dataset_root = os.path.join('./demo_data', action_type)
+    
+    # 새 API 방식으로 데이터셋 생성, image_transforms 인자 사용
     dataset = LeRobotDataset(
-        dataset_name, 
+        f"{dataset_name}_{action_type}", 
         delta_timestamps=delta_timestamps, 
-        root='./demo_data',
+        root=dataset_root,
         image_transforms=image_augmentation_transforms # Pass the defined transforms
     )
     
-    # Create training dataloader
+    # 훈련용 데이터로더 생성
     dataloader = torch.utils.data.DataLoader(
         dataset,
         num_workers=4,
@@ -119,79 +164,112 @@ def prepare_data(dataset_name, policy, dataset_metadata):
     return dataset, dataloader
 
 
-def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000):
-    """Train the policy on the dataset"""
+def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=3000):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     policy.train()
     policy.to(device)
     
-    # Set up optimizer
+    # 옵티마이저 설정
     optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
     
     os.makedirs(ckpt_dir, exist_ok=True)
     losses = []
     
-    # Training loop
+    # 훈련 루프
     step = 0
     for epoch in range(num_epochs // len(dataloader) + 1):
         for batch in dataloader:
             if step >= num_epochs:
                 break
-                
+            
+            # 배치 데이터 준비 (이제 'action' 키를 직접 사용)
             inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) 
-                         for k, v in batch.items()}
-            loss, _ = policy.forward(inp_batch)
+                        for k, v in batch.items()}
+            
+            # 예측 및 손실 계산
+            outputs = policy(inp_batch)
+            
+            # 손실 역전파 및 가중치 업데이트
+            loss = outputs.loss
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            optimizer.zero_grad()
+            
+            # 손실 기록
             losses.append(loss.item())
             
+            # 로그 출력
             if step % 100 == 0:
-                print(f"step: {step} loss: {loss.item():.4f}")
+                print(f"Step {step}, Loss: {loss.item():.4f}")
+            
+            # 모델 저장
+            if step % 1000 == 0:
+                policy.save_pretrained(ckpt_dir)
                 
+                # 손실 그래프 저장
+                plt.figure()
+                plt.plot(losses)
+                plt.xlabel('Steps')
+                plt.ylabel('Loss')
+                plt.title(f'Training Loss for {action_type}')
+                plt.savefig(os.path.join(ckpt_dir, 'loss.png'))
+                plt.close()
+            
             step += 1
-            if step >= num_epochs:
-                break
     
-    # Save the final model
+    # 최종 모델 저장
     policy.save_pretrained(ckpt_dir)
-    print(f"Training completed. Model saved to {ckpt_dir}")
+    
+    # 최종 손실 그래프 저장
+    plt.figure()
+    plt.plot(losses)
+    plt.xlabel('Steps')
+    plt.ylabel('Loss')
+    plt.title(f'Training Loss for {action_type}')
+    plt.savefig(os.path.join(ckpt_dir, 'loss.png'))
+    plt.close()
     
     return losses
 
 
-def evaluate_policy(policy, dataset, device, episode_index=0):
-    """Evaluate the policy on the dataset"""
-    policy.eval()
+def evaluate_policy(policy, dataset, device, action_type, episode_index=0):
+    """
+    Evaluate policy on a specific episode
+    
+    Args:
+        policy: Policy to evaluate
+        dataset: Dataset to evaluate on
+        device: Device to run evaluation on
+        action_type: Type of action to evaluate with
+        episode_index: Index of episode to evaluate on
+    
+    Returns:
+        Ground truth actions and predicted actions
+    """
+    # Create a dataloader for the specific episode
+    test_dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=32,
+        sampler=EpisodeSampler(dataset, episode_index),
+        shuffle=False,
+    )
+    
     actions = []
     gt_actions = []
     images = []
     
-    # Create an episode sampler to sample frames from a specific episode
-    episode_sampler = EpisodeSampler(dataset, episode_index)
-    test_dataloader = torch.utils.data.DataLoader(
-        dataset,
-        num_workers=4,
-        batch_size=1,
-        shuffle=False,
-        pin_memory=device.type != "cpu",
-        sampler=episode_sampler,
-    )
-    
-    # Reset policy state
+    policy.eval()
     policy.reset()
     
-    # Get action feature names (to handle different action types)
-    output_features = policy.config.output_features
-    action_feature_name = next(iter(output_features.keys()))
-    
     # Collect predictions
-    print(f"Evaluating policy using {action_feature_name}...")
+    print("Evaluating policy...")
     for batch in test_dataloader:
+        # 이제 'action' 키를 직접 사용
         inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
+            
         action = policy.select_action(inp_batch)
         actions.append(action)
-        gt_actions.append(inp_batch[action_feature_name][:, 0, :])
+        gt_actions.append(inp_batch["action"][:, 0, :])
         images.append(inp_batch["observation.image"] if "observation.image" in inp_batch else None)
     
     # Concatenate results
@@ -287,55 +365,51 @@ class EpisodeSampler(torch.utils.data.Sampler):
 
 
 def main():
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='Train ACT policy with selected action type')
-    parser.add_argument('--action_type', type=str, default='joint', 
-                        choices=['joint', 'ee_pose', 'delta_q'],
-                        help='Action type to use for training: joint, ee_pose, or delta_q')
+    # 명령줄 인자 파싱
+    parser = argparse.ArgumentParser(description='Train the ACT model.')
+    parser.add_argument('--action_type', type=str, choices=['joint', 'ee_pose', 'delta_q'], default='joint',
+                        help='Type of action to train with')
+    parser.add_argument('--load_ckpt', action='store_true', help='Whether to load from checkpoint')
+    parser.add_argument('--num_epochs', type=int, default=3000, help='Number of epochs to train')
     args = parser.parse_args()
-    
-    # Configuration
-    REPO_NAME = 'omy_pnp'
-    ROOT = "./demo_data"  # Path to demonstration data
-    CKPT_DIR = "./ckpt/act_y"  # Path to save checkpoints
-    
-    # Set action type from command line argument
+
+    # Use global variable to share action type
+    global ACTION_TYPE
     ACTION_TYPE = args.action_type
-    print(f"Training with action type: {ACTION_TYPE}")
     
-    # Try to load the dataset
+    print(f"\n=== Training ACT model with action type: {ACTION_TYPE} ===\n")
+    
     try:
+        # 체크포인트 디렉토리 설정
+        ckpt_dir = './ckpt/act_y'
+        
+        # 정책 생성 또는 로드
         policy, dataset_metadata, action_type_ckpt_dir = create_or_load_policy(
-            CKPT_DIR, action_type=ACTION_TYPE, load_ckpt=False)
-        dataset, dataloader = prepare_data(REPO_NAME, policy, dataset_metadata)
-        print(f"Dataset loaded with {dataset.num_episodes} episodes")
+            ckpt_dir, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt
+        )
+        
+        # 데이터 준비
+        dataset, dataloader = prepare_data('omy_pnp', policy, dataset_metadata, ACTION_TYPE)
+        
+        # 정책 훈련
+        print("Training policy...")
+        losses = train_policy(policy, dataset, dataloader, action_type_ckpt_dir, ACTION_TYPE, num_epochs=args.num_epochs)
+        
+        # 정책 평가
+        print("Evaluating policy...")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        gt_actions, pred_actions = evaluate_policy(policy, dataset, device, ACTION_TYPE, episode_index=0)
+        
+        # 평가 결과 시각화 및 저장
+        if gt_actions is not None and pred_actions is not None:
+            print("Plotting evaluation results...")
+            plot_results(gt_actions, pred_actions, os.path.join(action_type_ckpt_dir, 'evaluation_results'))
+        
     except Exception as e:
-        print(f"Failed to load dataset: {e}")
-        print("Please make sure you have collected data or are using the correct path.")
-        return
-    
-    # Train the policy
-    print("Starting training...")
-    losses = train_policy(policy, dataset, dataloader, action_type_ckpt_dir)
-    
-    # Plot training loss and save in action-specific checkpoint directory
-    plt.figure(figsize=(10, 6))
-    plt.plot(losses)
-    plt.title(f'Training Loss ({ACTION_TYPE})')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.savefig(os.path.join(action_type_ckpt_dir, 'training_loss.png'))
-    
-    # Evaluate the policy
-    print("Evaluating policy...")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_index=0)
-    
-    # Plot evaluation results and save in action-specific checkpoint directory
-    if gt_actions is not None and pred_actions is not None:
-        plot_results(gt_actions, pred_actions, action_type_ckpt_dir)
+        print(f"Error in main: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
     main()
-

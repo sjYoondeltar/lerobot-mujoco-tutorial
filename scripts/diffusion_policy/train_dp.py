@@ -10,15 +10,48 @@ import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import argparse  # Added for command-line arguments
 from torchvision import transforms
 from typing import Dict, Tuple, List, Any
 
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
-from lerobot.common.datasets.utils import dataset_to_policy_features
 from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
 from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
-from lerobot.configs.types import FeatureType
+from lerobot.configs.types import FeatureType, PolicyFeature
 from lerobot.common.datasets.factory import resolve_delta_timestamps
+
+
+def dataset_to_policy_features(features: dict[str, dict]) -> dict[str, PolicyFeature]:
+    # TODO(aliberts): Implement "type" in dataset features and simplify this
+    policy_features = {}
+    for key, ft in features.items():
+        shape = ft["shape"]
+        if ft["dtype"] in ["image", "video"]:
+            type = FeatureType.VISUAL
+            if len(shape) != 3:
+                raise ValueError(f"Number of dimensions of {key} != 3 (shape={shape})")
+
+            names = ft["names"]
+            # Backward compatibility for "channel" which is an error introduced in LeRobotDataset v2.0 for ported datasets.
+            if names[2] in ["channel", "channels"]:  # (h, w, c) -> (c, h, w)
+                shape = (shape[2], shape[0], shape[1])
+        elif key == "observation.environment_state":
+            type = FeatureType.ENV
+        elif key.startswith("observation"):
+            type = FeatureType.STATE
+        elif key == "action":
+            type = FeatureType.ACTION
+        elif key.startswith("action"):
+            type = FeatureType.ACTION
+        else:
+            continue
+
+        policy_features[key] = PolicyFeature(
+            type=type,
+            shape=shape,
+        )
+
+    return policy_features
 
 
 class AddGaussianNoise(object):
@@ -54,23 +87,43 @@ class EpisodeSampler(torch.utils.data.Sampler):
         return len(self.frame_ids)
 
 
-def create_or_load_policy(ckpt_dir: str, load_ckpt: bool = False) -> DiffusionPolicy:
+def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: bool = False) -> Tuple[DiffusionPolicy, LeRobotDatasetMetadata, str]:
     """
     Create a new policy or load an existing one.
     
     Args:
         ckpt_dir: Directory to save/load checkpoints
+        action_type: Type of action to train with ('joint', 'ee_pose', or 'delta_q')
         load_ckpt: Whether to load an existing checkpoint
         
     Returns:
         policy: DiffusionPolicy instance
+        dataset_metadata: Dataset metadata
+        action_type_ckpt_dir: Checkpoint directory for the specific action type
     """
-    # Load dataset metadata
-    dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
+    # 액션 타입에 따라 데이터셋 경로 설정
+    dataset_root = os.path.join('./demo_data', action_type)
+    dataset_metadata = LeRobotDatasetMetadata(f"omy_pnp_{action_type}", root=dataset_root)
     features = dataset_to_policy_features(dataset_metadata.features)
-    output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+    
+    # 디버깅: 사용 가능한 특성 출력
+    print(f"Available features: {list(features.keys())}")
+    print("Feature types:")
+    for k, v in features.items():
+        print(f"  - {k}: type={v.type if hasattr(v, 'type') else 'None'}, shape={v.shape if hasattr(v, 'shape') else 'None'}")
+    
+    # 액션 관련 feature 찾기
+    output_features = {k: v for k, v in features.items() if k == "action" and v.type is FeatureType.ACTION}
+    
+    # output_features가 비어있는지 확인
+    if not output_features:
+        print(f"WARNING: No output features found for action_type '{action_type}'")
+        print("Dataset might not contain the 'action' key.")
+        print(f"Make sure you've collected data with action_type='{action_type}'.")
+        raise ValueError(f"No features found for action type: {action_type}")
+    
+    # 입력 특성 설정
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
-    # input_features.pop("observation.wrist_image")
 
     # Create policy configuration
     cfg = DiffusionConfig(
@@ -80,24 +133,35 @@ def create_or_load_policy(ckpt_dir: str, load_ckpt: bool = False) -> DiffusionPo
         n_action_steps=1
     )
     
+    # Adjust the checkpoint directory to include the action type
+    action_type_ckpt_dir = os.path.join(ckpt_dir, action_type)
+    
     # Create or load policy
-    if load_ckpt and os.path.exists(ckpt_dir):
-        print(f"Loading policy from {ckpt_dir}")
-        policy = DiffusionPolicy.from_pretrained(ckpt_dir)
+    if load_ckpt and os.path.exists(action_type_ckpt_dir):
+        print(f"Loading policy from {action_type_ckpt_dir}")
+        policy = DiffusionPolicy.from_pretrained(action_type_ckpt_dir)
     else:
-        print("Creating new policy")
-        policy = DiffusionPolicy(cfg, dataset_stats=dataset_metadata.stats)
-        
-    return policy, dataset_metadata
+        print(f"Creating new policy for action type: {action_type}")
+        try:
+            policy = DiffusionPolicy(cfg, dataset_stats=dataset_metadata.stats)
+            print("DiffusionPolicy successfully created")
+        except Exception as e:
+            print(f"Error creating DiffusionPolicy: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+    
+    return policy, dataset_metadata, action_type_ckpt_dir
 
 
-def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig) -> LeRobotDataset:
+def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig, action_type: str) -> LeRobotDataset:
     """
     Prepare dataset for training.
     
     Args:
         dataset_metadata: Metadata for the dataset
         cfg: Policy configuration
+        action_type: Type of action to train with
         
     Returns:
         dataset: Dataset ready for training
@@ -121,11 +185,14 @@ def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig)
         transforms.Lambda(lambda x: x.clamp(0, 1))
     ])
     
+    # 액션 타입에 따라 데이터셋 경로 설정
+    dataset_root = os.path.join('./demo_data', action_type)
+    
     # Create dataset
     dataset = LeRobotDataset(
-        "omy_pnp", 
+        f"omy_pnp_{action_type}", 
         delta_timestamps=delta_timestamps, 
-        root='./demo_data', 
+        root=dataset_root, 
         image_transforms=transform
     )
     
@@ -226,6 +293,7 @@ def evaluate_policy(
     print("Evaluating policy...")
     
     for batch in test_dataloader:
+        # 'action' 키를 직접 사용
         inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
         action = policy.select_action(inp_batch)
         
@@ -331,6 +399,15 @@ def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir:
 
 def main():
     """Main function."""
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Train Diffusion policy with selected action type')
+    parser.add_argument('--action_type', type=str, default='joint', 
+                        choices=['joint', 'ee_pose', 'delta_q'],
+                        help='Action type to use for training: joint, ee_pose, or delta_q')
+    parser.add_argument('--load_ckpt', action='store_true',
+                        help='Whether to load from checkpoint')
+    args = parser.parse_args()
+    
     # Configuration
     REPO_NAME = 'omy_pnp'
     ROOT = "./demo_data"  # Path to demonstration data
@@ -339,33 +416,42 @@ def main():
     TRAINING_STEPS = 2000
     LOG_FREQ = 100
     
-    print(f"Training Diffusion Policy on device: {DEVICE}")
+    # Set action type from command line argument
+    ACTION_TYPE = args.action_type
+    print(f"\n=== Training Diffusion Policy with action type: {ACTION_TYPE} on device: {DEVICE} ===\n")
     
-    # Create or load policy
-    policy, dataset_metadata = create_or_load_policy(CKPT_DIR, load_ckpt=False)
-    
-    # Prepare dataset
-    dataset = prepare_data(dataset_metadata, policy.config)
-    print(f"Dataset loaded with {dataset.num_episodes} episodes")
-    
-    # Train the policy
-    losses = train_policy(policy, dataset, CKPT_DIR, DEVICE, TRAINING_STEPS, LOG_FREQ)
-    
-    # Plot training loss
-    plt.figure(figsize=(10, 6))
-    plt.plot(losses)
-    plt.title('Training Loss')
-    plt.xlabel('Training Step')
-    plt.ylabel('Loss')
-    plt.savefig(os.path.join(CKPT_DIR, 'training_loss.png'))
-    # plt.show()
-    
-    # Evaluate the policy
-    gt_actions, pred_actions = evaluate_policy(policy, dataset, DEVICE)
-    
-    # Plot evaluation results
-    if gt_actions is not None and pred_actions is not None:
-        plot_results(gt_actions, pred_actions, CKPT_DIR)
+    try:
+        # 정책 생성 또는 로드
+        policy, dataset_metadata, action_type_ckpt_dir = create_or_load_policy(
+            CKPT_DIR, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt)
+        
+        # Prepare dataset
+        dataset = prepare_data(dataset_metadata, policy.config, ACTION_TYPE)
+        print(f"Dataset loaded with {dataset.num_episodes} episodes")
+        
+        # Train the policy
+        losses = train_policy(policy, dataset, action_type_ckpt_dir, DEVICE, TRAINING_STEPS, LOG_FREQ)
+        
+        # Plot training loss
+        plt.figure(figsize=(10, 6))
+        plt.plot(losses)
+        plt.title(f'Training Loss ({ACTION_TYPE})')
+        plt.xlabel('Training Step')
+        plt.ylabel('Loss')
+        plt.savefig(os.path.join(action_type_ckpt_dir, 'training_loss.png'))
+        
+        # Evaluate the policy
+        gt_actions, pred_actions = evaluate_policy(policy, dataset, DEVICE)
+        
+        # Plot evaluation results
+        if gt_actions is not None and pred_actions is not None:
+            plot_results(gt_actions, pred_actions, action_type_ckpt_dir)
+    except Exception as e:
+        print(f"Error during training or evaluation: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    print("Script completed.")
 
 
 if __name__ == "__main__":
