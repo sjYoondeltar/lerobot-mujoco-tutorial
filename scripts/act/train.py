@@ -24,7 +24,6 @@ from torchvision import transforms # Import transforms
 from lerobot.common.policies.act.modeling_act import ACTPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
-from lerobot.common.datasets.utils import dataset_to_policy_features
 from lerobot.configs.types import FeatureType, PolicyFeature
 from lerobot.common.policies.act.configuration_act import ACTConfig
 from lerobot.common.datasets.factory import resolve_delta_timestamps
