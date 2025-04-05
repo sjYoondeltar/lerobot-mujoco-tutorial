@@ -77,8 +77,8 @@ def create_dataset(repo_name, root):
                         },
                         "action.ee_pose": {
                             "dtype": "float32",
-                            "shape": (6,),
-                            "names": ["action_ee_pose"],  # x, y, z, roll, pitch, yaw
+                            "shape": (7,),
+                            "names": ["action_ee_pose"],  # x, y, z, roll, pitch, yaw, gripper
                         },
                         "action.delta_q": {
                             "dtype": "float32",
@@ -155,13 +155,19 @@ def collect_demonstrations(env, dataset, task_name, num_demos, seed):
             wrist_image = np.array(wrist_image)
             
             if record_flag:
+                # Get gripper state (last element of joint_q)
+                gripper_state = joint_q[-1]
+                
+                # Create ee_pose with gripper state
+                ee_pose_with_gripper = np.concatenate([ee_pose, np.array([gripper_state])], dtype=np.float32)
+                
                 # Add the frame to the dataset
                 dataset.add_frame({
                         "observation.image": agent_image,
                         "observation.wrist_image": wrist_image,
                         "observation.state": ee_pose, 
                         "action.joint": joint_q,
-                        "action.ee_pose": ee_pose[:6],  # x, y, z, roll, pitch, yaw
+                        "action.ee_pose": ee_pose_with_gripper,  # x, y, z, roll, pitch, yaw, gripper
                         "action.delta_q": delta_q,  # delta joint angles with gripper
                         "obj_init": env.obj_init_pose,
                         "task": task_name,
