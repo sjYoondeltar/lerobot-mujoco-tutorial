@@ -70,10 +70,20 @@ def create_dataset(repo_name, root):
                             "shape": (6,),
                             "names": ["state"],  # x, y, z, roll, pitch, yaw
                         },
-                        "action": {
+                        "action.joint": {
                             "dtype": "float32",
                             "shape": (7,),
-                            "names": ["action"],  # 6 joint angles and 1 gripper
+                            "names": ["action_joint"],  # 6 joint angles and 1 gripper
+                        },
+                        "action.ee_pose": {
+                            "dtype": "float32",
+                            "shape": (6,),
+                            "names": ["action_ee_pose"],  # x, y, z, roll, pitch, yaw
+                        },
+                        "action.delta_q": {
+                            "dtype": "float32",
+                            "shape": (7,),
+                            "names": ["action_delta_q"],  # 6 delta joint angles and 1 gripper
                         },
                         "obj_init": {
                             "dtype": "float32",
@@ -121,11 +131,19 @@ def collect_demonstrations(env, dataset, task_name, num_demos, seed):
                 dataset.clear_episode_buffer()
                 record_flag = False
             
-            # Step the environment
+            # Step the environment with the current action type
             joint_q = env.step(action)
             
-            # Get the end-effector pose and images
+            # Get the end-effector pose and delta joint angles
             ee_pose = env.get_ee_pose()
+            
+            # For delta_q, we need to temporarily set the state_type
+            original_state_type = env.state_type
+            env.state_type = 'delta_q'
+            delta_q = env.get_delta_q()  # Get delta joint angles
+            env.state_type = original_state_type  # Restore original state type
+            
+            # Get camera images
             agent_image, wrist_image = env.grab_image()
             
             # resize to 256x256
@@ -142,7 +160,9 @@ def collect_demonstrations(env, dataset, task_name, num_demos, seed):
                         "observation.image": agent_image,
                         "observation.wrist_image": wrist_image,
                         "observation.state": ee_pose, 
-                        "action": joint_q,
+                        "action.joint": joint_q,
+                        "action.ee_pose": ee_pose[:6],  # x, y, z, roll, pitch, yaw
+                        "action.delta_q": delta_q,  # delta joint angles with gripper
                         "obj_init": env.obj_init_pose,
                         "task": task_name,
                     }
@@ -166,11 +186,23 @@ def main():
     TASK_NAME = 'Put mug cup on the plate'
     XML_PATH = './asset/example_scene_y.xml'
     
+    """
+    Available action_type options in SimpleEnv:
+    - 'eef_pose': Control using end-effector pose (x,y,z,roll,pitch,yaw)
+    - 'joint_angle': Control using absolute joint angles
+    - 'delta_joint_angle': Control using delta joint angles (changes to current angles)
+    
+    Available state_type options in SimpleEnv:
+    - 'joint_angle': Get joint angles as state
+    - 'ee_pose': Get end-effector pose as state
+    - 'delta_q': Get delta joint angles (when using delta_joint_angle action type)
+    """
+    
     # Import the SimpleEnv here to avoid immediate import
     from mujoco_env.y_env import SimpleEnv
     
     # Define the environment
-    env = SimpleEnv(XML_PATH, seed=SEED, state_type='joint_angle')
+    env = SimpleEnv(XML_PATH, seed=SEED, state_type='joint_angle', action_type='eef_pose')
     
     # Create or load dataset
     dataset = create_dataset(REPO_NAME, ROOT)
