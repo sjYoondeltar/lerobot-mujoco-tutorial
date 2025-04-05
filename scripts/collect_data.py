@@ -80,6 +80,11 @@ def create_dataset(repo_name, root):
                             "shape": (6,),
                             "names": ["action_ee_pose"],  # x, y, z, roll, pitch, yaw
                         },
+                        "action.delta_q": {
+                            "dtype": "float32",
+                            "shape": (7,),
+                            "names": ["action_delta_q"],  # 6 delta joint angles and 1 gripper
+                        },
                         "obj_init": {
                             "dtype": "float32",
                             "shape": (6,),
@@ -126,11 +131,19 @@ def collect_demonstrations(env, dataset, task_name, num_demos, seed):
                 dataset.clear_episode_buffer()
                 record_flag = False
             
-            # Step the environment
+            # Step the environment with the current action type
             joint_q = env.step(action)
             
-            # Get the end-effector pose and images
+            # Get the end-effector pose and delta joint angles
             ee_pose = env.get_ee_pose()
+            
+            # For delta_q, we need to temporarily set the state_type
+            original_state_type = env.state_type
+            env.state_type = 'delta_q'
+            delta_q = env.get_delta_q()  # Get delta joint angles
+            env.state_type = original_state_type  # Restore original state type
+            
+            # Get camera images
             agent_image, wrist_image = env.grab_image()
             
             # resize to 256x256
@@ -149,6 +162,7 @@ def collect_demonstrations(env, dataset, task_name, num_demos, seed):
                         "observation.state": ee_pose, 
                         "action.joint": joint_q,
                         "action.ee_pose": ee_pose[:6],  # x, y, z, roll, pitch, yaw
+                        "action.delta_q": delta_q,  # delta joint angles with gripper
                         "obj_init": env.obj_init_pose,
                         "task": task_name,
                     }
