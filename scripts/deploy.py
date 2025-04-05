@@ -83,6 +83,21 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
             else:
                 print(f"Unknown action type: {action_type}. Using all action features.")
                 output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+            
+            # 키 값 출력해서 디버깅
+            print(f"Available features: {list(features.keys())}")
+            print(f"Selected output features for {action_type}: {list(output_features.keys())}")
+            
+            # 출력 특성이 비어있는지 확인
+            if not output_features:
+                print(f"WARNING: No output features found for action_type '{action_type}'")
+                print("Available feature types in dataset:")
+                for k, v in features.items():
+                    print(f"  - {k}: type={v.type}, shape={v.shape}")
+                
+                # 폴백 솔루션: 전체 액션 타입 사용
+                print("Falling back to using all action features")
+                output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
         else:
             # For non-ACT policies, use all action features
             output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
@@ -129,12 +144,47 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
                 temporal_ensemble_coeff=0.9 # Example ACT specific param
             )
             
+            # Print config details for debugging
+            print(f"ACT Config - input features: {list(cfg.input_features.keys())}")
+            print(f"ACT Config - output features: {list(cfg.output_features.keys())}")
+            if not cfg.output_features:
+                print("ERROR: No output features in config. Cannot continue.")
+                return None, None
+                
+            # Make sure action_feature is set
+            feature_key = next(iter(cfg.output_features.keys()), None)
+            if feature_key:
+                cfg.action_feature = cfg.output_features[feature_key]
+                print(f"Setting action_feature to {feature_key} with shape {cfg.action_feature.shape}")
+            else:
+                print("ERROR: Cannot set action_feature - no output features available")
+                return None, None
+            
             # Load the ACT policy from the checkpoint with config and dataset stats
-            policy = ACTPolicy.from_pretrained(
-                ckpt_dir, 
-                config=cfg, 
-                dataset_stats=dataset_metadata.stats
-            )
+            try:
+                print(f"Loading ACT policy from {ckpt_dir}...")
+                policy = ACTPolicy.from_pretrained(
+                    ckpt_dir, 
+                    config=cfg, 
+                    dataset_stats=dataset_metadata.stats
+                )
+                print("Successfully loaded ACT policy")
+            except Exception as e:
+                print(f"Error loading ACT policy: {e}")
+                print("Trying to initialize a new policy and load the state dict manually...")
+                try:
+                    policy = ACTPolicy(cfg, dataset_stats=dataset_metadata.stats)
+                    weights_path = os.path.join(ckpt_dir, "pytorch_model.bin")
+                    if os.path.exists(weights_path):
+                        state_dict = torch.load(weights_path, map_location=DEVICE)
+                        policy.load_state_dict(state_dict, strict=False)
+                        print("Successfully loaded model weights manually")
+                    else:
+                        print(f"No weights file found at {weights_path}")
+                        return None, None
+                except Exception as e2:
+                    print(f"Failed to initialize and load policy manually: {e2}")
+                    return None, None
 
         elif policy_type == 'diffusion':
             # Configure Diffusion policy

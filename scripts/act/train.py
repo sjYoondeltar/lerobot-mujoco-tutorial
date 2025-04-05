@@ -47,6 +47,12 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
     dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root='./demo_data')
     features = dataset_to_policy_features(dataset_metadata.features)
     
+    # 디버깅: 사용 가능한 특성 출력
+    print(f"Available features: {list(features.keys())}")
+    print("Feature types:")
+    for k, v in features.items():
+        print(f"  - {k}: type={v.type if hasattr(v, 'type') else 'None'}, shape={v.shape if hasattr(v, 'shape') else 'None'}")
+    
     # Filter output features based on selected action type
     if action_type == 'joint':
         output_features = {k: v for k, v in features.items() if k == "action.joint" and v.type is FeatureType.ACTION}
@@ -57,8 +63,24 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
     else:
         raise ValueError(f"Unknown action type: {action_type}")
     
+    # 선택된 output_features 확인
+    print(f"Selected output features for {action_type}: {list(output_features.keys())}")
+    
+    # output_features가 비어있는지 확인
+    if not output_features:
+        print(f"WARNING: No output features found for action_type '{action_type}'")
+        print("Dataset might not contain the requested action type.")
+        print("Make sure you've collected data with the appropriate action types.")
+        raise ValueError(f"No features found for action type: {action_type}")
+    
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
     # input_features.pop("observation.wrist_image")
+
+    # Ensure output features have valid shapes
+    for key, feature in output_features.items():
+        if not hasattr(feature, 'shape') or feature.shape is None:
+            print(f"ERROR: Feature '{key}' has no shape attribute or shape is None")
+            raise ValueError(f"Feature '{key}' has invalid shape: {feature.shape if hasattr(feature, 'shape') else 'None'}")
 
     # Set up the configuration
     cfg = ACTConfig(
@@ -68,6 +90,15 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
         n_action_steps=10
     )
     
+    # Ensure action_feature is set
+    feature_key = next(iter(cfg.output_features.keys()), None)
+    if feature_key:
+        cfg.action_feature = cfg.output_features[feature_key]
+        print(f"Setting action_feature to {feature_key} with shape {cfg.action_feature.shape}")
+    else:
+        print("ERROR: Cannot set action_feature - no output features available")
+        raise ValueError("No action features available in config")
+    
     # Adjust the checkpoint directory to include the action type
     action_type_ckpt_dir = os.path.join(ckpt_dir, action_type)
     
@@ -76,7 +107,14 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
         policy = ACTPolicy.from_pretrained(action_type_ckpt_dir)
     else:
         print(f"Creating new policy for action type: {action_type}")
-        policy = ACTPolicy(cfg, dataset_stats=dataset_metadata.stats)
+        try:
+            policy = ACTPolicy(cfg, dataset_stats=dataset_metadata.stats)
+            print("ACTPolicy successfully created")
+        except Exception as e:
+            print(f"Error creating ACTPolicy: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     return policy, dataset_metadata, action_type_ckpt_dir
 
@@ -303,37 +341,70 @@ def main():
     ACTION_TYPE = args.action_type
     print(f"Training with action type: {ACTION_TYPE}")
     
-    # Try to load the dataset
+    # 먼저 데이터셋 내용을 검증하고 필요한 데이터가 있는지 확인
+    try:
+        # 데이터셋 메타데이터 로드
+        dataset_metadata = LeRobotDatasetMetadata(REPO_NAME, root=ROOT)
+        print(f"Dataset contains the following features:")
+        for k, v in dataset_metadata.features.items():
+            print(f"  - {k}: {v}")
+        
+        # 필요한 액션 타입이 있는지 확인
+        action_feature_name = f"action.{ACTION_TYPE}" if ACTION_TYPE != 'joint' else 'action.joint'
+        if action_feature_name not in dataset_metadata.features:
+            print(f"ERROR: The dataset does not contain the required feature '{action_feature_name}'")
+            print(f"Available features: {list(dataset_metadata.features.keys())}")
+            print("Please collect data with this feature or choose another action type.")
+            return
+        else:
+            print(f"Found required feature '{action_feature_name}' in dataset")
+    except Exception as e:
+        print(f"Error while validating dataset: {e}")
+        print("Please make sure the dataset exists at the correct location.")
+        import traceback
+        traceback.print_exc()
+        return
+    
+    # Try to load the dataset and create policy
     try:
         policy, dataset_metadata, action_type_ckpt_dir = create_or_load_policy(
             CKPT_DIR, action_type=ACTION_TYPE, load_ckpt=False)
         dataset, dataloader = prepare_data(REPO_NAME, policy, dataset_metadata)
         print(f"Dataset loaded with {dataset.num_episodes} episodes")
     except Exception as e:
-        print(f"Failed to load dataset: {e}")
+        print(f"Failed to load dataset or create policy: {e}")
         print("Please make sure you have collected data or are using the correct path.")
+        import traceback
+        traceback.print_exc()
         return
     
     # Train the policy
-    print("Starting training...")
-    losses = train_policy(policy, dataset, dataloader, action_type_ckpt_dir)
-    
-    # Plot training loss and save in action-specific checkpoint directory
-    plt.figure(figsize=(10, 6))
-    plt.plot(losses)
-    plt.title(f'Training Loss ({ACTION_TYPE})')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.savefig(os.path.join(action_type_ckpt_dir, 'training_loss.png'))
-    
-    # Evaluate the policy
-    print("Evaluating policy...")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_index=0)
-    
-    # Plot evaluation results and save in action-specific checkpoint directory
-    if gt_actions is not None and pred_actions is not None:
-        plot_results(gt_actions, pred_actions, action_type_ckpt_dir)
+    try:
+        print("Starting training...")
+        losses = train_policy(policy, dataset, dataloader, action_type_ckpt_dir)
+        
+        # Plot training loss and save in action-specific checkpoint directory
+        plt.figure(figsize=(10, 6))
+        plt.plot(losses)
+        plt.title(f'Training Loss ({ACTION_TYPE})')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.savefig(os.path.join(action_type_ckpt_dir, 'training_loss.png'))
+        
+        # Evaluate the policy
+        print("Evaluating policy...")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_index=0)
+        
+        # Plot evaluation results and save in action-specific checkpoint directory
+        if gt_actions is not None and pred_actions is not None:
+            plot_results(gt_actions, pred_actions, action_type_ckpt_dir)
+    except Exception as e:
+        print(f"Error during training or evaluation: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    print("Script completed.")
 
 
 if __name__ == "__main__":
