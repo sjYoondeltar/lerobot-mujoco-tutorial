@@ -217,7 +217,7 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
                 gripper_state = joint_q[-1]
                 
                 # Create ee_pose with gripper state
-                eef_pose_with_gripper = np.concatenate([action, np.array([gripper_state])], dtype=np.float32)
+                eef_pose_with_gripper = action
                 
                 # 공통 프레임 데이터
                 common_frame_data = {
