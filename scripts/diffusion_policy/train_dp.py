@@ -61,7 +61,7 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
     
     Args:
         ckpt_dir: Directory to save/load checkpoints
-        action_type: Type of action to train with ('joint', 'ee_pose', or 'delta_q')
+        action_type: Type of action to train with ('joint', 'eef_pose', or 'delta_q')
         load_ckpt: Whether to load an existing checkpoint
         
     Returns:
@@ -71,7 +71,7 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
     """
     # 액션 타입에 따라 데이터셋 경로 설정
     dataset_root = os.path.join('./demo_data', action_type)
-    dataset_metadata = LeRobotDatasetMetadata(f"omy_pnp_{action_type}", root=dataset_root)
+    dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root=dataset_root)
     features = dataset_to_policy_features(dataset_metadata.features)
     
     # 디버깅: 사용 가능한 특성 출력
@@ -401,8 +401,8 @@ def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Train Diffusion policy with selected action type')
     parser.add_argument('--action_type', type=str, default='joint', 
-                        choices=['joint', 'ee_pose', 'delta_q'],
-                        help='Action type to use for training: joint, ee_pose, or delta_q')
+                        choices=['joint', 'eef_pose', 'delta_q'],
+                        help='Action type to use for training: joint, eef_pose, or delta_q')
     parser.add_argument('--load_ckpt', action='store_true',
                         help='Whether to load from checkpoint')
     args = parser.parse_args()
@@ -411,7 +411,7 @@ def main():
     REPO_NAME = 'omy_pnp'
     ROOT = "./demo_data"  # Path to demonstration data
     CKPT_DIR = "./ckpt/diffusion_y"  # Path to save checkpoints
-    DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     TRAINING_STEPS = 2000
     LOG_FREQ = 100
     
