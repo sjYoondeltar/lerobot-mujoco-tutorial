@@ -157,10 +157,9 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=
                         for k, v in batch.items()}
             
             # 예측 및 손실 계산
-            outputs = policy(inp_batch)
+            loss, _  = policy(inp_batch)
             
             # 손실 역전파 및 가중치 업데이트
-            loss = outputs.loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
