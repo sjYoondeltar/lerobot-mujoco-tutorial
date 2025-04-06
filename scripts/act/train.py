@@ -138,7 +138,7 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=
     policy.to(device)
     
     # 옵티마이저 설정
-    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-3)
     
     os.makedirs(ckpt_dir, exist_ok=True)
     losses = []
@@ -253,6 +253,12 @@ def evaluate_policy(policy, dataset, device, action_type, episode_index=0):
     if actions:
         actions = torch.cat(actions, dim=0)
         gt_actions = torch.cat(gt_actions, dim=0)
+        
+        # Fix for size mismatch: Ensure both tensors have the same first dimension
+        min_size = min(actions.size(0), gt_actions.size(0))
+        actions = actions[:min_size]
+        gt_actions = gt_actions[:min_size]
+        
         print(f"Mean action error: {torch.mean(torch.abs(actions[:, :gt_actions.size(1)] - gt_actions)).item():.3f}")
         return gt_actions, actions
     else:
@@ -281,8 +287,15 @@ def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir:
     gt_np = gt_actions.cpu().detach().numpy()
     pred_np = pred_actions.cpu().detach().numpy()
     
+    # Ensure both arrays have compatible shapes for comparison
+    min_samples = min(gt_np.shape[0], pred_np.shape[0])
+    action_dim = min(gt_np.shape[1], pred_np.shape[1]) if len(gt_np.shape) > 1 and len(pred_np.shape) > 1 else 1
+    
+    # Trim both arrays to match dimensions
+    gt_np = gt_np[:min_samples, :action_dim] if len(gt_np.shape) > 1 else gt_np[:min_samples]
+    pred_np = pred_np[:min_samples, :action_dim] if len(pred_np.shape) > 1 else pred_np[:min_samples]
+    
     # Plot each action dimension
-    action_dim = gt_np.shape[1]
     fig, axs = plt.subplots(action_dim, 1, figsize=(10, 2*action_dim))
     
     for i in range(action_dim):
@@ -291,8 +304,8 @@ def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir:
         else:
             ax = axs[i]
         
-        ax.plot(pred_np[:, i], label="prediction")
-        ax.plot(gt_np[:, i], label="ground truth")
+        ax.plot(pred_np[:, i], label="prediction") if len(pred_np.shape) > 1 else ax.plot(pred_np, label="prediction")
+        ax.plot(gt_np[:, i], label="ground truth") if len(gt_np.shape) > 1 else ax.plot(gt_np, label="ground truth")
         ax.set_title(f"Action Dimension {i}")
         ax.legend()
     
@@ -303,12 +316,19 @@ def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir:
     plt.close()  # Close the figure to free memory
     
     # Plot error heatmap
-    error = np.abs(pred_np[:, :gt_np.shape[1]] - gt_np)
+    error = np.abs(pred_np - gt_np)
     plt.figure(figsize=(10, 6))
-    plt.imshow(error.T, aspect='auto', cmap='hot')
-    plt.colorbar(label='Absolute Error')
-    plt.xlabel('Time Step')
-    plt.ylabel('Action Dimension')
+    
+    if len(error.shape) > 1:  # If we have multiple dimensions
+        plt.imshow(error.T, aspect='auto', cmap='hot')
+        plt.colorbar(label='Absolute Error')
+        plt.xlabel('Time Step')
+        plt.ylabel('Action Dimension')
+    else:  # If we have just a single dimension
+        plt.plot(error)
+        plt.xlabel('Time Step')
+        plt.ylabel('Absolute Error')
+    
     plt.title('Error Heatmap')
     heatmap_path = os.path.join(save_dir, 'error_heatmap.png')
     plt.savefig(heatmap_path)
