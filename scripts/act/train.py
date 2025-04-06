@@ -36,7 +36,7 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
     
     Args:
         ckpt_dir: Directory to save or load the checkpoint from
-        action_type: Type of action to train with ('joint', 'ee_pose', or 'delta_q')
+        action_type: Type of action to train with ('joint', 'eef_pose', or 'delta_q')
         load_ckpt: Whether to load from checkpoint
     """
     # 액션 타입에 따라 데이터셋 경로 설정
@@ -344,7 +344,7 @@ class EpisodeSampler(torch.utils.data.Sampler):
 def main():
     # 명령줄 인자 파싱
     parser = argparse.ArgumentParser(description='Train the ACT model.')
-    parser.add_argument('--action_type', type=str, choices=['joint', 'ee_pose', 'delta_q'], default='joint',
+    parser.add_argument('--action_type', type=str, choices=['joint', 'eef_pose', 'delta_q'], default='joint',
                         help='Type of action to train with')
     parser.add_argument('--load_ckpt', action='store_true', help='Whether to load from checkpoint')
     parser.add_argument('--num_epochs', type=int, default=3000, help='Number of epochs to train')

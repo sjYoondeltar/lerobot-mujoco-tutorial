@@ -92,7 +92,7 @@ def create_dataset(repo_name, root, action_type=None):
                 "shape": (7,),
                 "names": ["action"],  # 6 joint angles and 1 gripper
             }
-        elif action_type == 'ee_pose':
+        elif action_type == 'eef_pose':
             features["action"] = {
                 "dtype": "float32",
                 "shape": (7,),
@@ -115,7 +115,7 @@ def create_dataset(repo_name, root, action_type=None):
                 "action.ee_pose": {
                     "dtype": "float32",
                     "shape": (7,),
-                    "names": ["action_ee_pose"],  # x, y, z, roll, pitch, yaw, gripper
+                    "names": ["action_eef_pose"],  # x, y, z, roll, pitch, yaw, gripper
                 },
                 "action.delta_q": {
                     "dtype": "float32",
@@ -235,10 +235,10 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
                         joint_frame["action"] = joint_q
                         datasets['joint'].add_frame(joint_frame)
                     
-                    if 'ee_pose' in datasets:
+                    if 'eef_pose' in datasets:
                         ee_pose_frame = common_frame_data.copy()
                         ee_pose_frame["action"] = ee_pose_with_gripper
-                        datasets['ee_pose'].add_frame(ee_pose_frame)
+                        datasets['eef_pose'].add_frame(ee_pose_frame)
                     
                     if 'delta_q' in datasets:
                         delta_q_frame = common_frame_data.copy()
@@ -249,7 +249,7 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
                     datasets.add_frame({
                             **common_frame_data,
                             "action.joint": joint_q,
-                            "action.ee_pose": ee_pose_with_gripper,  # x, y, z, roll, pitch, yaw, gripper
+                            "action.eef_pose": ee_pose_with_gripper,  # x, y, z, roll, pitch, yaw, gripper
                             "action.delta_q": delta_q,  # delta joint angles with gripper
                         }
                     )
@@ -271,7 +271,7 @@ def main():
     # Configuration
     SEED = None  # Set to None to randomize object positions
     REPO_NAME = 'omy_pnp'
-    NUM_DEMO = 1  # Number of demonstrations to collect
+    NUM_DEMO = 5  # Number of demonstrations to collect
     ROOT = "./demo_data"  # The root directory to save the demonstrations
     TASK_NAME = 'Put mug cup on the plate'
     XML_PATH = './asset/example_scene_y.xml'
@@ -284,11 +284,11 @@ def main():
     from mujoco_env.y_env import SimpleEnv
     
     # Define the environment
-    env = SimpleEnv(XML_PATH, seed=SEED, state_type='joint_angle', action_type='eef_pose')
+    env = SimpleEnv(XML_PATH, seed=SEED, state_type='joint_angle')
     
     if separate_datasets:
         # 액션 타입별로 별도의 데이터셋 생성
-        action_types = ['joint', 'ee_pose', 'delta_q']
+        action_types = ['joint', 'eef_pose', 'delta_q']
         datasets = {}
         
         for action_type in action_types:
