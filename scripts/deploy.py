@@ -72,8 +72,8 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
             # 기존 방식 액션 특성 필터링
             if action_type == 'joint':
                 output_features = {k: v for k, v in legacy_features.items() if k == "action.joint" and v.type is FeatureType.ACTION}
-            elif action_type == 'ee_pose':
-                output_features = {k: v for k, v in legacy_features.items() if k == "action.ee_pose" and v.type is FeatureType.ACTION}
+            elif action_type == 'eef_pose':
+                output_features = {k: v for k, v in legacy_features.items() if k == "action.eef_pose" and v.type is FeatureType.ACTION}
             elif action_type == 'delta_q':
                 output_features = {k: v for k, v in legacy_features.items() if k == "action.delta_q" and v.type is FeatureType.ACTION}
             
@@ -669,8 +669,8 @@ def main():
         "--action_type", 
         type=str, 
         default='joint', 
-        choices=['joint', 'ee_pose', 'delta_q'], 
-        help="Type of action to use ('joint', 'ee_pose', or 'delta_q'). Only applicable for ACT policy."
+        choices=['joint', 'eef_pose', 'delta_q'], 
+        help="Type of action to use ('joint', 'eef_pose', or 'delta_q'). Only applicable for ACT policy."
     )
     parser.add_argument(
         "--ckpt_dir", 
@@ -724,7 +724,7 @@ def main():
     try:
         if args.action_type == 'joint':
             pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='joint_angle')
-        elif args.action_type == 'ee_pose':
+        elif args.action_type == 'eef_pose':
             pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='eef_pose')
         elif args.action_type == 'delta_q':
             pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='delta_joint_angle')
