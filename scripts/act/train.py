@@ -138,7 +138,7 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=
     policy.to(device)
     
     # 옵티마이저 설정
-    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
     
     os.makedirs(ckpt_dir, exist_ok=True)
     losses = []
