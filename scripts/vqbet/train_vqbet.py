@@ -165,9 +165,26 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000):
                     eval_metrics.append((step, mae))
                     print(f"Evaluation MAE at step {step}: {mae:.4f}")
                     
-                    # Optionally save plots at regular intervals
-                    if step % 1000 == 0:
-                        eval_dir = os.path.join(ckpt_dir, f"eval_step_{step}")
+                # Save checkpoint every 100 steps
+                if step > 0:
+                    step_ckpt_dir = os.path.join(ckpt_dir, f'step_{step}')
+                    os.makedirs(step_ckpt_dir, exist_ok=True)
+                    policy.save_pretrained(step_ckpt_dir)
+                    
+                    # 손실 그래프 저장
+                    plt.figure()
+                    plt.plot(losses)
+                    plt.xlabel('Steps')
+                    plt.ylabel('Loss')
+                    plt.title(f'Training Loss (Step {step})')
+                    plt.savefig(os.path.join(step_ckpt_dir, f'loss_step_{step}.png'))
+                    plt.close()
+                    
+                    print(f"Saved checkpoint at step {step}")
+                    
+                    # Optionally save detailed evaluation plots
+                    if gt_actions is not None and pred_actions is not None and gt_actions.shape == pred_actions.shape:
+                        eval_dir = os.path.join(step_ckpt_dir, "eval")
                         os.makedirs(eval_dir, exist_ok=True)
                         plot_results(gt_actions, pred_actions, eval_dir)
                 
@@ -177,23 +194,6 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, num_epochs=3000):
             step += 1
             if step >= num_epochs:
                 break
-        
-        # 100 에포크마다 모델 저장 (에포크 번호 포함)
-        if current_epoch % 100 == 0 and current_epoch > 0:
-            epoch_ckpt_dir = os.path.join(ckpt_dir, f'epoch_{current_epoch}')
-            os.makedirs(epoch_ckpt_dir, exist_ok=True)
-            policy.save_pretrained(epoch_ckpt_dir)
-            
-            # 손실 그래프 저장
-            plt.figure()
-            plt.plot(losses)
-            plt.xlabel('Steps')
-            plt.ylabel('Loss')
-            plt.title(f'Training Loss (Epoch {current_epoch})')
-            plt.savefig(os.path.join(epoch_ckpt_dir, f'loss_epoch_{current_epoch}.png'))
-            plt.close()
-            
-            print(f"Saved checkpoint at epoch {current_epoch}")
     
     # Final evaluation
     print("Running final evaluation...")
@@ -462,52 +462,52 @@ def train_vqvae(policy, dataset, dataloader, ckpt_dir, num_epochs=1000):
                 recon_loss_str = f", recon_loss: {recon_losses[-1]:.4f}" if recon_losses else ""
                 vq_loss_str = f", vq_loss: {vq_losses[-1]:.4f}" if vq_losses else ""
                 print(f"VQ-VAE Step: {step}, Epoch: {current_epoch}, Loss: {loss_value:.4f}{recon_loss_str}{vq_loss_str}")
+                
+                # Save checkpoint every 100 steps
+                if step > 0:
+                    step_vqvae_dir = os.path.join(vqvae_ckpt_dir, f'step_{step}')
+                    os.makedirs(step_vqvae_dir, exist_ok=True)
+                    
+                    # Save checkpoint with step number
+                    vqvae_step_path = os.path.join(step_vqvae_dir, f"model_step_{step}.pt")
+                    torch.save({
+                        'epoch': current_epoch,
+                        'step': step,
+                        'model_state_dict': policy.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': loss_value,
+                    }, vqvae_step_path)
+                    
+                    # Save loss plot
+                    plt.figure(figsize=(12, 6))
+                    
+                    plt.subplot(1, 3, 1)
+                    plt.plot(losses)
+                    plt.title(f'Total VQ-VAE Loss (Step {step})')
+                    plt.xlabel('Step')
+                    plt.ylabel('Loss')
+                    
+                    if recon_losses:
+                        plt.subplot(1, 3, 2)
+                        plt.plot(recon_losses)
+                        plt.title('Reconstruction Loss')
+                        plt.xlabel('Step')
+                    
+                    if vq_losses:
+                        plt.subplot(1, 3, 3)
+                        plt.plot(vq_losses)
+                        plt.title('VQ Loss')
+                        plt.xlabel('Step')
+                    
+                    plt.tight_layout()
+                    plt.savefig(os.path.join(step_vqvae_dir, f'vqvae_losses_step_{step}.png'))
+                    plt.close()
+                    
+                    print(f"Saved VQ-VAE checkpoint at step {step}")
             
             step += 1
             if step >= num_epochs:
                 break
-        
-        # 100 에포크마다 모델 저장 (에포크 번호 포함)
-        if current_epoch % 100 == 0 and current_epoch > 0:
-            epoch_vqvae_dir = os.path.join(vqvae_ckpt_dir, f'epoch_{current_epoch}')
-            os.makedirs(epoch_vqvae_dir, exist_ok=True)
-            
-            # Save checkpoint with epoch number
-            vqvae_epoch_path = os.path.join(epoch_vqvae_dir, f"model_epoch_{current_epoch}.pt")
-            torch.save({
-                'epoch': current_epoch,
-                'step': step,
-                'model_state_dict': policy.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss_value,
-            }, vqvae_epoch_path)
-            
-            # Save loss plot
-            plt.figure(figsize=(12, 6))
-            
-            plt.subplot(1, 3, 1)
-            plt.plot(losses)
-            plt.title(f'Total VQ-VAE Loss (Epoch {current_epoch})')
-            plt.xlabel('Step')
-            plt.ylabel('Loss')
-            
-            if recon_losses:
-                plt.subplot(1, 3, 2)
-                plt.plot(recon_losses)
-                plt.title('Reconstruction Loss')
-                plt.xlabel('Step')
-            
-            if vq_losses:
-                plt.subplot(1, 3, 3)
-                plt.plot(vq_losses)
-                plt.title('VQ Loss')
-                plt.xlabel('Step')
-            
-            plt.tight_layout()
-            plt.savefig(os.path.join(epoch_vqvae_dir, f'vqvae_losses_epoch_{current_epoch}.png'))
-            plt.close()
-            
-            print(f"Saved VQ-VAE checkpoint at epoch {current_epoch}")
     
     # Save final VQ-VAE model
     final_vqvae_dir = os.path.join(vqvae_ckpt_dir, "final")

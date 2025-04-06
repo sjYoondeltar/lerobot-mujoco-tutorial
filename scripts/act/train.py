@@ -172,24 +172,26 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=
             if step % 100 == 0:
                 print(f"Step {step}, Epoch {current_epoch}, Loss: {loss.item():.4f}")
             
+            # 100 스텝마다 모델 저장 (스텝 번호 포함)
+            if step % 100 == 0 and step > 0:
+                step_ckpt_dir = os.path.join(ckpt_dir, f'step_{step}')
+                os.makedirs(step_ckpt_dir, exist_ok=True)
+                policy.save_pretrained(step_ckpt_dir)
+                
+                # 손실 그래프 저장
+                plt.figure()
+                plt.plot(losses)
+                plt.xlabel('Steps')
+                plt.ylabel('Loss')
+                plt.title(f'Training Loss for {action_type} (Step {step})')
+                plt.savefig(os.path.join(step_ckpt_dir, f'loss_step_{step}.png'))
+                plt.close()
+                
+                print(f"Saved checkpoint at step {step}")
+            
             step += 1
-        
-        # 100 에포크마다 모델 저장 (에포크 번호 포함)
-        if current_epoch % 100 == 0:
-            epoch_ckpt_dir = os.path.join(ckpt_dir, f'epoch_{current_epoch}')
-            os.makedirs(epoch_ckpt_dir, exist_ok=True)
-            policy.save_pretrained(epoch_ckpt_dir)
-            
-            # 손실 그래프 저장
-            plt.figure()
-            plt.plot(losses)
-            plt.xlabel('Steps')
-            plt.ylabel('Loss')
-            plt.title(f'Training Loss for {action_type} (Epoch {current_epoch})')
-            plt.savefig(os.path.join(epoch_ckpt_dir, f'loss_epoch_{current_epoch}.png'))
-            plt.close()
-            
-            print(f"Saved checkpoint at epoch {current_epoch}")
+            if step >= num_epochs:
+                break
     
     # 최종 모델 저장
     final_ckpt_dir = os.path.join(ckpt_dir, 'final')

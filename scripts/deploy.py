@@ -138,18 +138,39 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
                     print(f"Using final checkpoint: {final_ckpt_dir}")
                     ckpt_dir = final_ckpt_dir
                 else:
-                    # Look for the highest epoch checkpoint
-                    epoch_dirs = [d for d in os.listdir(act_ckpt_dir) 
-                                 if os.path.isdir(os.path.join(act_ckpt_dir, d)) and d.startswith('epoch_')]
-                    
-                    if epoch_dirs:
-                        # Sort by epoch number and get highest
-                        epoch_dirs.sort(key=lambda x: int(x.split('_')[1]))
-                        latest_epoch_dir = os.path.join(act_ckpt_dir, epoch_dirs[-1])
-                        print(f"Using latest epoch checkpoint: {latest_epoch_dir}")
-                        ckpt_dir = latest_epoch_dir
-                    else:
-                        # Use the action type directory itself if no epoch or final dirs found
+                    try:
+                        # Look for the highest step checkpoint
+                        step_dirs = [d for d in os.listdir(act_ckpt_dir) 
+                                    if os.path.isdir(os.path.join(act_ckpt_dir, d)) and d.startswith('step_')]
+                        
+                        if step_dirs:
+                            # Sort by step number and get highest
+                            step_dirs.sort(key=lambda x: int(x.split('_')[1]))
+                            latest_step_dir = os.path.join(act_ckpt_dir, step_dirs[-1])
+                            print(f"Using latest step checkpoint: {latest_step_dir}")
+                            ckpt_dir = latest_step_dir
+                        else:
+                            try:
+                                # Try to look for epoch-based checkpoints (backward compatibility)
+                                epoch_dirs = [d for d in os.listdir(act_ckpt_dir) 
+                                            if os.path.isdir(os.path.join(act_ckpt_dir, d)) and d.startswith('epoch_')]
+                                
+                                if epoch_dirs:
+                                    # Sort by epoch number and get highest
+                                    epoch_dirs.sort(key=lambda x: int(x.split('_')[1]))
+                                    latest_epoch_dir = os.path.join(act_ckpt_dir, epoch_dirs[-1])
+                                    print(f"Using latest epoch checkpoint: {latest_epoch_dir}")
+                                    ckpt_dir = latest_epoch_dir
+                                else:
+                                    # Use the action type directory itself if no step or epoch dirs found
+                                    ckpt_dir = act_ckpt_dir
+                            except Exception as e:
+                                print(f"Error looking for epoch-based checkpoints: {e}")
+                                # Use the action type directory as fallback
+                                ckpt_dir = act_ckpt_dir
+                    except Exception as e:
+                        print(f"Error looking for step-based checkpoints: {e}")
+                        # Use the action type directory as fallback
                         ckpt_dir = act_ckpt_dir
             else:
                 print(f"Action-specific checkpoint not found at {act_ckpt_dir}")
@@ -183,18 +204,39 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
                     print(f"Using final checkpoint: {final_ckpt_dir}")
                     ckpt_dir = final_ckpt_dir
                 else:
-                    # Look for the highest epoch checkpoint
-                    epoch_dirs = [d for d in os.listdir(diffusion_ckpt_dir) 
-                                 if os.path.isdir(os.path.join(diffusion_ckpt_dir, d)) and d.startswith('epoch_')]
-                    
-                    if epoch_dirs:
-                        # Sort by epoch number and get highest
-                        epoch_dirs.sort(key=lambda x: int(x.split('_')[1]))
-                        latest_epoch_dir = os.path.join(diffusion_ckpt_dir, epoch_dirs[-1])
-                        print(f"Using latest epoch checkpoint: {latest_epoch_dir}")
-                        ckpt_dir = latest_epoch_dir
-                    else:
-                        # Use the action type directory itself if no epoch or final dirs found
+                    try:
+                        # Look for the highest step checkpoint
+                        step_dirs = [d for d in os.listdir(diffusion_ckpt_dir) 
+                                    if os.path.isdir(os.path.join(diffusion_ckpt_dir, d)) and d.startswith('step_')]
+                        
+                        if step_dirs:
+                            # Sort by step number and get highest
+                            step_dirs.sort(key=lambda x: int(x.split('_')[1]))
+                            latest_step_dir = os.path.join(diffusion_ckpt_dir, step_dirs[-1])
+                            print(f"Using latest step checkpoint: {latest_step_dir}")
+                            ckpt_dir = latest_step_dir
+                        else:
+                            try:
+                                # Try to look for epoch-based checkpoints (backward compatibility)
+                                epoch_dirs = [d for d in os.listdir(diffusion_ckpt_dir) 
+                                            if os.path.isdir(os.path.join(diffusion_ckpt_dir, d)) and d.startswith('epoch_')]
+                                
+                                if epoch_dirs:
+                                    # Sort by epoch number and get highest
+                                    epoch_dirs.sort(key=lambda x: int(x.split('_')[1]))
+                                    latest_epoch_dir = os.path.join(diffusion_ckpt_dir, epoch_dirs[-1])
+                                    print(f"Using latest epoch checkpoint: {latest_epoch_dir}")
+                                    ckpt_dir = latest_epoch_dir
+                                else:
+                                    # Use the action type directory itself if no step or epoch dirs found
+                                    ckpt_dir = diffusion_ckpt_dir
+                            except Exception as e:
+                                print(f"Error looking for epoch-based checkpoints: {e}")
+                                # Use the action type directory as fallback
+                                ckpt_dir = diffusion_ckpt_dir
+                    except Exception as e:
+                        print(f"Error looking for step-based checkpoints: {e}")
+                        # Use the action type directory as fallback
                         ckpt_dir = diffusion_ckpt_dir
             else:
                 print(f"Action-specific checkpoint not found at {diffusion_ckpt_dir}")
@@ -277,18 +319,39 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
                     print(f"Using final checkpoint: {final_ckpt_dir}")
                     ckpt_dir = final_ckpt_dir
                 else:
-                    # Look for the highest epoch checkpoint
-                    epoch_dirs = [d for d in os.listdir(vqbet_ckpt_dir) 
-                                 if os.path.isdir(os.path.join(vqbet_ckpt_dir, d)) and d.startswith('epoch_')]
-                    
-                    if epoch_dirs:
-                        # Sort by epoch number and get highest
-                        epoch_dirs.sort(key=lambda x: int(x.split('_')[1]))
-                        latest_epoch_dir = os.path.join(vqbet_ckpt_dir, epoch_dirs[-1])
-                        print(f"Using latest epoch checkpoint: {latest_epoch_dir}")
-                        ckpt_dir = latest_epoch_dir
-                    else:
-                        # Use the action type directory itself if no epoch or final dirs found
+                    try:
+                        # Look for the highest step checkpoint
+                        step_dirs = [d for d in os.listdir(vqbet_ckpt_dir) 
+                                    if os.path.isdir(os.path.join(vqbet_ckpt_dir, d)) and d.startswith('step_')]
+                        
+                        if step_dirs:
+                            # Sort by step number and get highest
+                            step_dirs.sort(key=lambda x: int(x.split('_')[1]))
+                            latest_step_dir = os.path.join(vqbet_ckpt_dir, step_dirs[-1])
+                            print(f"Using latest step checkpoint: {latest_step_dir}")
+                            ckpt_dir = latest_step_dir
+                        else:
+                            try:
+                                # Try to look for epoch-based checkpoints (backward compatibility)
+                                epoch_dirs = [d for d in os.listdir(vqbet_ckpt_dir) 
+                                            if os.path.isdir(os.path.join(vqbet_ckpt_dir, d)) and d.startswith('epoch_')]
+                                
+                                if epoch_dirs:
+                                    # Sort by epoch number and get highest
+                                    epoch_dirs.sort(key=lambda x: int(x.split('_')[1]))
+                                    latest_epoch_dir = os.path.join(vqbet_ckpt_dir, epoch_dirs[-1])
+                                    print(f"Using latest epoch checkpoint: {latest_epoch_dir}")
+                                    ckpt_dir = latest_epoch_dir
+                                else:
+                                    # Use the action type directory itself if no step or epoch dirs found
+                                    ckpt_dir = vqbet_ckpt_dir
+                            except Exception as e:
+                                print(f"Error looking for epoch-based checkpoints: {e}")
+                                # Use the action type directory as fallback
+                                ckpt_dir = vqbet_ckpt_dir
+                    except Exception as e:
+                        print(f"Error looking for step-based checkpoints: {e}")
+                        # Use the action type directory as fallback
                         ckpt_dir = vqbet_ckpt_dir
             else:
                 print(f"Action-specific checkpoint not found at {vqbet_ckpt_dir}")
@@ -300,13 +363,48 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
             # Check for VQ-VAE specific checkpoint
             vqvae_ckpt_dir = os.path.join(ckpt_dir, "vqvae_only")
             
-            # Check for final VQ-VAE checkpoint in final directory (newest structure)
+            # Check for final VQ-VAE checkpoint in final directory (highest priority)
             vqvae_final_dir = os.path.join(vqvae_ckpt_dir, "final")
             vqvae_final_path = os.path.join(vqvae_final_dir, "final_model.pt")
             
-            # If not found, try the legacy path
+            # If not found, try to find the latest step-based checkpoint
+            if not os.path.exists(vqvae_final_path) and os.path.exists(vqvae_ckpt_dir):
+                try:
+                    # Look for the highest step checkpoint in vqvae_ckpt_dir
+                    step_dirs = [d for d in os.listdir(vqvae_ckpt_dir) 
+                                if os.path.isdir(os.path.join(vqvae_ckpt_dir, d)) and d.startswith('step_')]
+                    
+                    if step_dirs:
+                        # Sort by step number and get highest
+                        step_dirs.sort(key=lambda x: int(x.split('_')[1]))
+                        latest_step_dir = os.path.join(vqvae_ckpt_dir, step_dirs[-1])
+                        step_number = step_dirs[-1].split('_')[1]
+                        vqvae_final_path = os.path.join(latest_step_dir, f"model_step_{step_number}.pt")
+                        print(f"Looking for VQ-VAE checkpoint at: {vqvae_final_path}")
+                except Exception as e:
+                    print(f"Error looking for step-based VQ-VAE checkpoints: {e}")
+            
+            # If still not found, try the legacy path
+            if not os.path.exists(vqvae_final_path) and os.path.exists(vqvae_ckpt_dir):
+                try:
+                    # Try epoch-based checkpoint (backward compatibility)
+                    epoch_dirs = [d for d in os.listdir(vqvae_ckpt_dir) 
+                                 if os.path.isdir(os.path.join(vqvae_ckpt_dir, d)) and d.startswith('epoch_')]
+                    
+                    if epoch_dirs:
+                        # Sort by epoch number and get highest
+                        epoch_dirs.sort(key=lambda x: int(x.split('_')[1]))
+                        latest_epoch_dir = os.path.join(vqvae_ckpt_dir, epoch_dirs[-1])
+                        epoch_number = epoch_dirs[-1].split('_')[1]
+                        vqvae_final_path = os.path.join(latest_epoch_dir, f"model_epoch_{epoch_number}.pt")
+                        print(f"Looking for VQ-VAE checkpoint at: {vqvae_final_path}")
+                except Exception as e:
+                    print(f"Error looking for epoch-based VQ-VAE checkpoints: {e}")
+                    
+            # If still not found, try the original path
             if not os.path.exists(vqvae_final_path):
                 vqvae_final_path = os.path.join(vqvae_ckpt_dir, "final_model.pt")
+                print(f"Looking for original VQ-VAE checkpoint at: {vqvae_final_path}")
             
             # Try to load VQ-VAE weights if available
             vqvae_loaded = False
