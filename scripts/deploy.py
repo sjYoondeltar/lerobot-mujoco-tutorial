@@ -722,7 +722,14 @@ def main():
     # Initialize the environment
     print(f"Initializing environment from: {args.xml_path}")
     try:
-        pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='joint_angle')
+        if args.action_type == 'joint':
+            pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='joint_angle')
+        elif args.action_type == 'ee_pose':
+            pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='eef_pose')
+        elif args.action_type == 'delta_q':
+            pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='delta_joint_angle')
+        else:
+            raise ValueError(f"Invalid action type: {args.action_type}")
         print("Environment initialized.")
     except Exception as e:
          print(f"Error initializing environment: {e}")
