@@ -217,7 +217,7 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
                 gripper_state = joint_q[-1]
                 
                 # Create ee_pose with gripper state
-                ee_pose_with_gripper = np.concatenate([ee_pose, np.array([gripper_state])], dtype=np.float32)
+                eef_pose_with_gripper = np.concatenate([action, np.array([gripper_state])], dtype=np.float32)
                 
                 # 공통 프레임 데이터
                 common_frame_data = {
@@ -237,7 +237,7 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
                     
                     if 'eef_pose' in datasets:
                         ee_pose_frame = common_frame_data.copy()
-                        ee_pose_frame["action"] = ee_pose_with_gripper
+                        ee_pose_frame["action"] = eef_pose_with_gripper
                         datasets['eef_pose'].add_frame(ee_pose_frame)
                     
                     if 'delta_q' in datasets:
@@ -249,7 +249,7 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
                     datasets.add_frame({
                             **common_frame_data,
                             "action.joint": joint_q,
-                            "action.eef_pose": ee_pose_with_gripper,  # x, y, z, roll, pitch, yaw, gripper
+                            "action.eef_pose": eef_pose_with_gripper,  # x, y, z, roll, pitch, yaw, gripper
                             "action.delta_q": delta_q,  # delta joint angles with gripper
                         }
                     )
