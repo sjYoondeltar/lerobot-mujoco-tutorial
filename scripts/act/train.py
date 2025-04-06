@@ -24,42 +24,10 @@ from torchvision import transforms # Import transforms
 from lerobot.common.policies.act.modeling_act import ACTPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
-from lerobot.configs.types import FeatureType, PolicyFeature
+from lerobot.configs.types import FeatureType
+from lerobot.common.datasets.utils import dataset_to_policy_features
 from lerobot.common.policies.act.configuration_act import ACTConfig
 from lerobot.common.datasets.factory import resolve_delta_timestamps
-
-
-def dataset_to_policy_features(features: dict[str, dict]) -> dict[str, PolicyFeature]:
-    # TODO(aliberts): Implement "type" in dataset features and simplify this
-    policy_features = {}
-    for key, ft in features.items():
-        shape = ft["shape"]
-        if ft["dtype"] in ["image", "video"]:
-            type = FeatureType.VISUAL
-            if len(shape) != 3:
-                raise ValueError(f"Number of dimensions of {key} != 3 (shape={shape})")
-
-            names = ft["names"]
-            # Backward compatibility for "channel" which is an error introduced in LeRobotDataset v2.0 for ported datasets.
-            if names[2] in ["channel", "channels"]:  # (h, w, c) -> (c, h, w)
-                shape = (shape[2], shape[0], shape[1])
-        elif key == "observation.environment_state":
-            type = FeatureType.ENV
-        elif key.startswith("observation"):
-            type = FeatureType.STATE
-        elif key == "action":
-            type = FeatureType.ACTION
-        elif key.startswith("action"):
-            type = FeatureType.ACTION
-        else:
-            continue
-
-        policy_features[key] = PolicyFeature(
-            type=type,
-            shape=shape,
-        )
-
-    return policy_features
 
 
 def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
@@ -68,12 +36,12 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
     
     Args:
         ckpt_dir: Directory to save or load the checkpoint from
-        action_type: Type of action to train with ('joint', 'ee_pose', or 'delta_q')
+        action_type: Type of action to train with ('joint', 'eef_pose', or 'delta_q')
         load_ckpt: Whether to load from checkpoint
     """
     # 액션 타입에 따라 데이터셋 경로 설정
     dataset_root = os.path.join('./demo_data', action_type)
-    dataset_metadata = LeRobotDatasetMetadata(f"omy_pnp_{action_type}", root=dataset_root)
+    dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root=dataset_root)
     features = dataset_to_policy_features(dataset_metadata.features)
     
     # 디버깅: 사용 가능한 특성 출력
@@ -145,7 +113,7 @@ def prepare_data(dataset_name, policy, dataset_metadata, action_type):
     
     # 새 API 방식으로 데이터셋 생성, image_transforms 인자 사용
     dataset = LeRobotDataset(
-        f"{dataset_name}_{action_type}", 
+        "omy_pnp", 
         delta_timestamps=delta_timestamps, 
         root=dataset_root,
         image_transforms=image_augmentation_transforms # Pass the defined transforms
@@ -170,14 +138,16 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=
     policy.to(device)
     
     # 옵티마이저 설정
-    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-3)
     
     os.makedirs(ckpt_dir, exist_ok=True)
     losses = []
     
     # 훈련 루프
     step = 0
+    current_epoch = 0
     for epoch in range(num_epochs // len(dataloader) + 1):
+        current_epoch = epoch
         for batch in dataloader:
             if step >= num_epochs:
                 break
@@ -187,10 +157,9 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=
                         for k, v in batch.items()}
             
             # 예측 및 손실 계산
-            outputs = policy(inp_batch)
+            loss, _  = policy(inp_batch)
             
             # 손실 역전파 및 가중치 업데이트
-            loss = outputs.loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -200,33 +169,41 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=
             
             # 로그 출력
             if step % 100 == 0:
-                print(f"Step {step}, Loss: {loss.item():.4f}")
+                print(f"Step {step}, Epoch {current_epoch}, Loss: {loss.item():.4f}")
             
-            # 모델 저장
-            if step % 1000 == 0:
-                policy.save_pretrained(ckpt_dir)
+            # 100 스텝마다 모델 저장 (스텝 번호 포함)
+            if step % 100 == 0 and step > 0:
+                step_ckpt_dir = os.path.join(ckpt_dir, f'step_{step}')
+                os.makedirs(step_ckpt_dir, exist_ok=True)
+                policy.save_pretrained(step_ckpt_dir)
                 
                 # 손실 그래프 저장
                 plt.figure()
                 plt.plot(losses)
                 plt.xlabel('Steps')
                 plt.ylabel('Loss')
-                plt.title(f'Training Loss for {action_type}')
-                plt.savefig(os.path.join(ckpt_dir, 'loss.png'))
+                plt.title(f'Training Loss for {action_type} (Step {step})')
+                plt.savefig(os.path.join(step_ckpt_dir, f'loss_step_{step}.png'))
                 plt.close()
+                
+                print(f"Saved checkpoint at step {step}")
             
             step += 1
+            if step >= num_epochs:
+                break
     
     # 최종 모델 저장
-    policy.save_pretrained(ckpt_dir)
+    final_ckpt_dir = os.path.join(ckpt_dir, 'final')
+    os.makedirs(final_ckpt_dir, exist_ok=True)
+    policy.save_pretrained(final_ckpt_dir)
     
     # 최종 손실 그래프 저장
     plt.figure()
     plt.plot(losses)
     plt.xlabel('Steps')
     plt.ylabel('Loss')
-    plt.title(f'Training Loss for {action_type}')
-    plt.savefig(os.path.join(ckpt_dir, 'loss.png'))
+    plt.title(f'Training Loss for {action_type} (Final)')
+    plt.savefig(os.path.join(final_ckpt_dir, 'loss_final.png'))
     plt.close()
     
     return losses
@@ -276,6 +253,12 @@ def evaluate_policy(policy, dataset, device, action_type, episode_index=0):
     if actions:
         actions = torch.cat(actions, dim=0)
         gt_actions = torch.cat(gt_actions, dim=0)
+        
+        # Fix for size mismatch: Ensure both tensors have the same first dimension
+        min_size = min(actions.size(0), gt_actions.size(0))
+        actions = actions[:min_size]
+        gt_actions = gt_actions[:min_size]
+        
         print(f"Mean action error: {torch.mean(torch.abs(actions[:, :gt_actions.size(1)] - gt_actions)).item():.3f}")
         return gt_actions, actions
     else:
@@ -304,8 +287,15 @@ def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir:
     gt_np = gt_actions.cpu().detach().numpy()
     pred_np = pred_actions.cpu().detach().numpy()
     
+    # Ensure both arrays have compatible shapes for comparison
+    min_samples = min(gt_np.shape[0], pred_np.shape[0])
+    action_dim = min(gt_np.shape[1], pred_np.shape[1]) if len(gt_np.shape) > 1 and len(pred_np.shape) > 1 else 1
+    
+    # Trim both arrays to match dimensions
+    gt_np = gt_np[:min_samples, :action_dim] if len(gt_np.shape) > 1 else gt_np[:min_samples]
+    pred_np = pred_np[:min_samples, :action_dim] if len(pred_np.shape) > 1 else pred_np[:min_samples]
+    
     # Plot each action dimension
-    action_dim = gt_np.shape[1]
     fig, axs = plt.subplots(action_dim, 1, figsize=(10, 2*action_dim))
     
     for i in range(action_dim):
@@ -314,8 +304,8 @@ def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir:
         else:
             ax = axs[i]
         
-        ax.plot(pred_np[:, i], label="prediction")
-        ax.plot(gt_np[:, i], label="ground truth")
+        ax.plot(pred_np[:, i], label="prediction") if len(pred_np.shape) > 1 else ax.plot(pred_np, label="prediction")
+        ax.plot(gt_np[:, i], label="ground truth") if len(gt_np.shape) > 1 else ax.plot(gt_np, label="ground truth")
         ax.set_title(f"Action Dimension {i}")
         ax.legend()
     
@@ -326,12 +316,19 @@ def plot_results(gt_actions: torch.Tensor, pred_actions: torch.Tensor, save_dir:
     plt.close()  # Close the figure to free memory
     
     # Plot error heatmap
-    error = np.abs(pred_np[:, :gt_np.shape[1]] - gt_np)
+    error = np.abs(pred_np - gt_np)
     plt.figure(figsize=(10, 6))
-    plt.imshow(error.T, aspect='auto', cmap='hot')
-    plt.colorbar(label='Absolute Error')
-    plt.xlabel('Time Step')
-    plt.ylabel('Action Dimension')
+    
+    if len(error.shape) > 1:  # If we have multiple dimensions
+        plt.imshow(error.T, aspect='auto', cmap='hot')
+        plt.colorbar(label='Absolute Error')
+        plt.xlabel('Time Step')
+        plt.ylabel('Action Dimension')
+    else:  # If we have just a single dimension
+        plt.plot(error)
+        plt.xlabel('Time Step')
+        plt.ylabel('Absolute Error')
+    
     plt.title('Error Heatmap')
     heatmap_path = os.path.join(save_dir, 'error_heatmap.png')
     plt.savefig(heatmap_path)
@@ -367,7 +364,7 @@ class EpisodeSampler(torch.utils.data.Sampler):
 def main():
     # 명령줄 인자 파싱
     parser = argparse.ArgumentParser(description='Train the ACT model.')
-    parser.add_argument('--action_type', type=str, choices=['joint', 'ee_pose', 'delta_q'], default='joint',
+    parser.add_argument('--action_type', type=str, choices=['joint', 'eef_pose', 'delta_q'], default='joint',
                         help='Type of action to train with')
     parser.add_argument('--load_ckpt', action='store_true', help='Whether to load from checkpoint')
     parser.add_argument('--num_epochs', type=int, default=3000, help='Number of epochs to train')

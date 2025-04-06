@@ -17,41 +17,9 @@ from typing import Dict, Tuple, List, Any
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
 from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
 from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
-from lerobot.configs.types import FeatureType, PolicyFeature
+from lerobot.configs.types import FeatureType
+from lerobot.common.datasets.utils import dataset_to_policy_features
 from lerobot.common.datasets.factory import resolve_delta_timestamps
-
-
-def dataset_to_policy_features(features: dict[str, dict]) -> dict[str, PolicyFeature]:
-    # TODO(aliberts): Implement "type" in dataset features and simplify this
-    policy_features = {}
-    for key, ft in features.items():
-        shape = ft["shape"]
-        if ft["dtype"] in ["image", "video"]:
-            type = FeatureType.VISUAL
-            if len(shape) != 3:
-                raise ValueError(f"Number of dimensions of {key} != 3 (shape={shape})")
-
-            names = ft["names"]
-            # Backward compatibility for "channel" which is an error introduced in LeRobotDataset v2.0 for ported datasets.
-            if names[2] in ["channel", "channels"]:  # (h, w, c) -> (c, h, w)
-                shape = (shape[2], shape[0], shape[1])
-        elif key == "observation.environment_state":
-            type = FeatureType.ENV
-        elif key.startswith("observation"):
-            type = FeatureType.STATE
-        elif key == "action":
-            type = FeatureType.ACTION
-        elif key.startswith("action"):
-            type = FeatureType.ACTION
-        else:
-            continue
-
-        policy_features[key] = PolicyFeature(
-            type=type,
-            shape=shape,
-        )
-
-    return policy_features
 
 
 class AddGaussianNoise(object):
@@ -241,9 +209,11 @@ def train_policy(
     losses = []
     step = 0
     done = False
+    current_epoch = 0
     
     print("Starting training...")
     while not done:
+        current_epoch += 1
         for batch in dataloader:
             inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
             loss, _ = policy.forward(inp_batch)
@@ -253,16 +223,45 @@ def train_policy(
             losses.append(loss.item())
             
             if step % log_freq == 0:
-                print(f"step: {step} loss: {loss.item():.3f}")
+                print(f"Step: {step}, Epoch: {current_epoch}, Loss: {loss.item():.3f}")
+            
+            # 100 스텝마다 모델 저장 (스텝 번호 포함)
+            if step % 100 == 0 and step > 0:
+                step_ckpt_dir = os.path.join(ckpt_dir, f'step_{step}')
+                os.makedirs(step_ckpt_dir, exist_ok=True)
+                policy.save_pretrained(step_ckpt_dir)
+                
+                # 손실 그래프 저장
+                plt.figure()
+                plt.plot(losses)
+                plt.xlabel('Steps')
+                plt.ylabel('Loss')
+                plt.title(f'Training Loss (Step {step})')
+                plt.savefig(os.path.join(step_ckpt_dir, f'loss_step_{step}.png'))
+                plt.close()
+                
+                print(f"Saved checkpoint at step {step}")
             
             step += 1
             if step >= training_steps:
                 done = True
                 break
     
-    # Save the trained model
-    print(f"Saving policy to {ckpt_dir}")
-    policy.save_pretrained(ckpt_dir)
+    # Save the final trained model
+    final_ckpt_dir = os.path.join(ckpt_dir, 'final')
+    os.makedirs(final_ckpt_dir, exist_ok=True)
+    policy.save_pretrained(final_ckpt_dir)
+    
+    # Save final loss graph
+    plt.figure()
+    plt.plot(losses)
+    plt.xlabel('Steps')
+    plt.ylabel('Loss')
+    plt.title('Training Loss (Final)')
+    plt.savefig(os.path.join(final_ckpt_dir, 'loss_final.png'))
+    plt.close()
+    
+    print(f"Saving final policy to {final_ckpt_dir}")
     
     return losses
 
