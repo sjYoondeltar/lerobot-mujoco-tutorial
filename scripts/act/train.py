@@ -24,42 +24,10 @@ from torchvision import transforms # Import transforms
 from lerobot.common.policies.act.modeling_act import ACTPolicy
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
-from lerobot.configs.types import FeatureType, PolicyFeature
+from lerobot.configs.types import FeatureType
+from lerobot.common.datasets.utils import dataset_to_policy_features
 from lerobot.common.policies.act.configuration_act import ACTConfig
 from lerobot.common.datasets.factory import resolve_delta_timestamps
-
-
-def dataset_to_policy_features(features: dict[str, dict]) -> dict[str, PolicyFeature]:
-    # TODO(aliberts): Implement "type" in dataset features and simplify this
-    policy_features = {}
-    for key, ft in features.items():
-        shape = ft["shape"]
-        if ft["dtype"] in ["image", "video"]:
-            type = FeatureType.VISUAL
-            if len(shape) != 3:
-                raise ValueError(f"Number of dimensions of {key} != 3 (shape={shape})")
-
-            names = ft["names"]
-            # Backward compatibility for "channel" which is an error introduced in LeRobotDataset v2.0 for ported datasets.
-            if names[2] in ["channel", "channels"]:  # (h, w, c) -> (c, h, w)
-                shape = (shape[2], shape[0], shape[1])
-        elif key == "observation.environment_state":
-            type = FeatureType.ENV
-        elif key.startswith("observation"):
-            type = FeatureType.STATE
-        elif key == "action":
-            type = FeatureType.ACTION
-        elif key.startswith("action"):
-            type = FeatureType.ACTION
-        else:
-            continue
-
-        policy_features[key] = PolicyFeature(
-            type=type,
-            shape=shape,
-        )
-
-    return policy_features
 
 
 def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
@@ -177,7 +145,9 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=
     
     # 훈련 루프
     step = 0
+    current_epoch = 0
     for epoch in range(num_epochs // len(dataloader) + 1):
+        current_epoch = epoch
         for batch in dataloader:
             if step >= num_epochs:
                 break
@@ -200,33 +170,39 @@ def train_policy(policy, dataset, dataloader, ckpt_dir, action_type, num_epochs=
             
             # 로그 출력
             if step % 100 == 0:
-                print(f"Step {step}, Loss: {loss.item():.4f}")
-            
-            # 모델 저장
-            if step % 1000 == 0:
-                policy.save_pretrained(ckpt_dir)
-                
-                # 손실 그래프 저장
-                plt.figure()
-                plt.plot(losses)
-                plt.xlabel('Steps')
-                plt.ylabel('Loss')
-                plt.title(f'Training Loss for {action_type}')
-                plt.savefig(os.path.join(ckpt_dir, 'loss.png'))
-                plt.close()
+                print(f"Step {step}, Epoch {current_epoch}, Loss: {loss.item():.4f}")
             
             step += 1
+        
+        # 100 에포크마다 모델 저장 (에포크 번호 포함)
+        if current_epoch % 100 == 0:
+            epoch_ckpt_dir = os.path.join(ckpt_dir, f'epoch_{current_epoch}')
+            os.makedirs(epoch_ckpt_dir, exist_ok=True)
+            policy.save_pretrained(epoch_ckpt_dir)
+            
+            # 손실 그래프 저장
+            plt.figure()
+            plt.plot(losses)
+            plt.xlabel('Steps')
+            plt.ylabel('Loss')
+            plt.title(f'Training Loss for {action_type} (Epoch {current_epoch})')
+            plt.savefig(os.path.join(epoch_ckpt_dir, f'loss_epoch_{current_epoch}.png'))
+            plt.close()
+            
+            print(f"Saved checkpoint at epoch {current_epoch}")
     
     # 최종 모델 저장
-    policy.save_pretrained(ckpt_dir)
+    final_ckpt_dir = os.path.join(ckpt_dir, 'final')
+    os.makedirs(final_ckpt_dir, exist_ok=True)
+    policy.save_pretrained(final_ckpt_dir)
     
     # 최종 손실 그래프 저장
     plt.figure()
     plt.plot(losses)
     plt.xlabel('Steps')
     plt.ylabel('Loss')
-    plt.title(f'Training Loss for {action_type}')
-    plt.savefig(os.path.join(ckpt_dir, 'loss.png'))
+    plt.title(f'Training Loss for {action_type} (Final)')
+    plt.savefig(os.path.join(final_ckpt_dir, 'loss_final.png'))
     plt.close()
     
     return losses
