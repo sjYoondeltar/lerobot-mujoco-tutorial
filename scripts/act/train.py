@@ -41,7 +41,7 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
     """
     # 액션 타입에 따라 데이터셋 경로 설정
     dataset_root = os.path.join('./demo_data', action_type)
-    dataset_metadata = LeRobotDatasetMetadata(f"omy_pnp_{action_type}", root=dataset_root)
+    dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root=dataset_root)
     features = dataset_to_policy_features(dataset_metadata.features)
     
     # 디버깅: 사용 가능한 특성 출력
@@ -113,7 +113,7 @@ def prepare_data(dataset_name, policy, dataset_metadata, action_type):
     
     # 새 API 방식으로 데이터셋 생성, image_transforms 인자 사용
     dataset = LeRobotDataset(
-        f"{dataset_name}_{action_type}", 
+        "omy_pnp", 
         delta_timestamps=delta_timestamps, 
         root=dataset_root,
         image_transforms=image_augmentation_transforms # Pass the defined transforms
