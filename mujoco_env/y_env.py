@@ -88,11 +88,11 @@ class SimpleEnv:
         
         if self.mode == 'easy':
             # Easy mode: Fixed plate position and narrow mug position range
-            fixed_plate_pos = np.array([0.32, 0.0, 0.82])  # Fixed plate position
+            fixed_plate_pos = np.array([0.35, -0.2, 0.82])  # Fixed plate position
             
             # Mug position with narrow range
-            mug_x = np.random.uniform(0.25, 0.35)  # Narrow x range
-            mug_y = np.random.uniform(-0.1, 0.1)   # Narrow y range
+            mug_x = np.random.uniform(0.20, 0.35)  # Narrow x range
+            mug_y = np.random.uniform(0.0, 0.2)   # Narrow y range
             mug_pos = np.array([mug_x, mug_y, 0.82])
             
             # Set positions based on object type
