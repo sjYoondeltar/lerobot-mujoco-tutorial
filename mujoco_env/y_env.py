@@ -28,18 +28,21 @@ class SimpleEnv:
                  xml_path,
                 action_type='eef_pose', 
                 state_type='joint_angle',
-                seed = None):
+                seed = None,
+                mode='easy'):
         """
         args:
             xml_path: str, path to the xml file
             action_type: str, type of action space, 'eef_pose','delta_joint_angle' or 'joint_angle'
             state_type: str, type of state space, 'joint_angle' or 'ee_pose'
             seed: int, seed for random number generator
+            mode: str, 'easy' or 'complex' - determines object placement strategy
         """
         # Load the xml file
         self.env = MuJoCoParserClass(name='Tabletop',rel_xml_path=xml_path)
         self.action_type = action_type
         self.state_type = state_type
+        self.mode = mode
 
         self.joint_names = ['joint1',
                     'joint2',
@@ -82,18 +85,39 @@ class SimpleEnv:
 
         # Set object positions
         obj_names = self.env.get_body_names(prefix='body_obj_')
-        n_obj = len(obj_names)
-        obj_xyzs = sample_xyzs(
-            n_obj,
-            x_range   = [+0.24,+0.4],
-            y_range   = [-0.2,+0.2],
-            z_range   = [0.82,0.82],
-            min_dist  = 0.2,
-            xy_margin = 0.0
-        )
-        for obj_idx in range(n_obj):
-            self.env.set_p_base_body(body_name=obj_names[obj_idx],p=obj_xyzs[obj_idx,:])
-            self.env.set_R_base_body(body_name=obj_names[obj_idx],R=np.eye(3,3))
+        
+        if self.mode == 'easy':
+            # Easy mode: Fixed plate position and narrow mug position range
+            fixed_plate_pos = np.array([0.32, 0.0, 0.82])  # Fixed plate position
+            
+            # Mug position with narrow range
+            mug_x = np.random.uniform(0.25, 0.35)  # Narrow x range
+            mug_y = np.random.uniform(-0.1, 0.1)   # Narrow y range
+            mug_pos = np.array([mug_x, mug_y, 0.82])
+            
+            # Set positions based on object type
+            for obj_name in obj_names:
+                if 'plate' in obj_name:
+                    self.env.set_p_base_body(body_name=obj_name, p=fixed_plate_pos)
+                elif 'mug' in obj_name:
+                    self.env.set_p_base_body(body_name=obj_name, p=mug_pos)
+                self.env.set_R_base_body(body_name=obj_name, R=np.eye(3,3))
+                
+        else:  # complex mode
+            # Complex mode: Original random placement
+            n_obj = len(obj_names)
+            obj_xyzs = sample_xyzs(
+                n_obj,
+                x_range   = [+0.24,+0.4],
+                y_range   = [-0.2,+0.2],
+                z_range   = [0.82,0.82],
+                min_dist  = 0.2,
+                xy_margin = 0.0
+            )
+            for obj_idx in range(n_obj):
+                self.env.set_p_base_body(body_name=obj_names[obj_idx],p=obj_xyzs[obj_idx,:])
+                self.env.set_R_base_body(body_name=obj_names[obj_idx],R=np.eye(3,3))
+        
         self.env.forward(increase_tick=False)
 
         # Set the initial pose of the robot
