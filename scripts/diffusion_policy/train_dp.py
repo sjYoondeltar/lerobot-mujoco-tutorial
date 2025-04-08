@@ -55,7 +55,7 @@ class EpisodeSampler(torch.utils.data.Sampler):
         return len(self.frame_ids)
 
 
-def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: bool = False) -> Tuple[DiffusionPolicy, LeRobotDatasetMetadata, str]:
+def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: bool = False, root_dir: str = './demo_data') -> Tuple[DiffusionPolicy, LeRobotDatasetMetadata, str]:
     """
     Create a new policy or load an existing one.
     
@@ -63,6 +63,7 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
         ckpt_dir: Directory to save/load checkpoints
         action_type: Type of action to train with ('joint', 'eef_pose', or 'delta_q')
         load_ckpt: Whether to load an existing checkpoint
+        root_dir: Root directory for dataset
         
     Returns:
         policy: DiffusionPolicy instance
@@ -70,7 +71,7 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
         action_type_ckpt_dir: Checkpoint directory for the specific action type
     """
     # 액션 타입에 따라 데이터셋 경로 설정
-    dataset_root = os.path.join('./demo_data', action_type)
+    dataset_root = os.path.join(root_dir, action_type)
     dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root=dataset_root)
     features = dataset_to_policy_features(dataset_metadata.features)
     
@@ -122,7 +123,7 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
     return policy, dataset_metadata, action_type_ckpt_dir
 
 
-def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig, action_type: str) -> LeRobotDataset:
+def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig, action_type: str, root_dir: str = './demo_data') -> LeRobotDataset:
     """
     Prepare dataset for training.
     
@@ -130,6 +131,7 @@ def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig,
         dataset_metadata: Metadata for the dataset
         cfg: Policy configuration
         action_type: Type of action to train with
+        root_dir: Root directory for dataset
         
     Returns:
         dataset: Dataset ready for training
@@ -154,15 +156,19 @@ def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig,
     ])
     
     # 액션 타입에 따라 데이터셋 경로 설정
-    dataset_root = os.path.join('./demo_data', action_type)
+    dataset_root = os.path.join(root_dir, action_type)
     
     # Create dataset
     dataset = LeRobotDataset(
-        f"omy_pnp_{action_type}", 
+        "omy_pnp", 
         delta_timestamps=delta_timestamps, 
         root=dataset_root, 
         image_transforms=transform
     )
+    
+    # Log dataset information for debugging
+    print(f"Dataset loaded with {dataset.num_episodes} episodes from {dataset_root}")
+    print(f"Dataset has {len(dataset)} samples")
     
     return dataset
 
@@ -173,7 +179,8 @@ def train_policy(
     ckpt_dir: str, 
     device: torch.device,
     training_steps: int = 5000,  # Increased from 3000 for better convergence
-    log_freq: int = 100
+    log_freq: int = 100,
+    eval_freq: int = 100  # Add evaluation frequency parameter
 ) -> List[float]:
     """
     Train the policy on the dataset.
@@ -185,6 +192,7 @@ def train_policy(
         device: Device to train on
         training_steps: Number of training steps
         log_freq: Frequency of logging
+        eval_freq: Frequency of evaluation
         
     Returns:
         losses: List of training losses
@@ -207,6 +215,7 @@ def train_policy(
     policy.train()
     policy.to(device)
     losses = []
+    mean_errors = []  # Track evaluation metrics
     step = 0
     done = False
     current_epoch = 0
@@ -225,22 +234,69 @@ def train_policy(
             if step % log_freq == 0:
                 print(f"Step: {step}, Epoch: {current_epoch}, Loss: {loss.item():.3f}")
             
-            # 100 스텝마다 모델 저장 (스텝 번호 포함)
-            if step % 100 == 0 and step > 0:
+            # Every eval_freq steps, evaluate the policy
+            if step % eval_freq == 0 and step > 0:
                 step_ckpt_dir = os.path.join(ckpt_dir, f'step_{step}')
                 os.makedirs(step_ckpt_dir, exist_ok=True)
                 policy.save_pretrained(step_ckpt_dir)
                 
+                # Evaluate on multiple episodes and calculate average error
+                print(f"\n--- Evaluating at step {step} ---")
+                eval_errors = []
+                # Evaluate on up to 3 episodes (or fewer if the dataset has fewer episodes)
+                num_eval_episodes = min(3, dataset.num_episodes)
+                
+                # Save current training mode and set to eval
+                training = policy.training
+                policy.eval()
+                
+                for episode_idx in range(num_eval_episodes):
+                    print(f"Evaluating on episode {episode_idx}...")
+                    gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_idx)
+                    
+                    if gt_actions is not None and pred_actions is not None:
+                        # Save evaluation plots
+                        eval_dir = os.path.join(step_ckpt_dir, f'eval_episode_{episode_idx}')
+                        plot_results(gt_actions, pred_actions, eval_dir)
+                        
+                        # Calculate error
+                        min_dim = min(pred_actions.size(1), gt_actions.size(1))
+                        error = torch.mean(torch.abs(pred_actions[:, :min_dim] - gt_actions[:, :min_dim])).item()
+                        eval_errors.append(error)
+                        print(f"Episode {episode_idx} - Mean action error: {error:.3f}")
+                
+                # Restore training mode
+                if training:
+                    policy.train()
+                
+                # Calculate and log average error across episodes
+                if eval_errors:
+                    avg_error = sum(eval_errors) / len(eval_errors)
+                    mean_errors.append((step, avg_error))
+                    print(f"Average mean action error across {len(eval_errors)} episodes: {avg_error:.3f}")
+                
                 # 손실 그래프 저장
-                plt.figure()
+                plt.figure(figsize=(12, 8))
+                plt.subplot(2, 1, 1)
                 plt.plot(losses)
                 plt.xlabel('Steps')
                 plt.ylabel('Loss')
                 plt.title(f'Training Loss (Step {step})')
-                plt.savefig(os.path.join(step_ckpt_dir, f'loss_step_{step}.png'))
+                
+                # Plot mean error if available
+                if mean_errors:
+                    plt.subplot(2, 1, 2)
+                    steps, errors = zip(*mean_errors)
+                    plt.plot(steps, errors, 'r-')
+                    plt.xlabel('Steps')
+                    plt.ylabel('Mean Action Error')
+                    plt.title('Evaluation Error')
+                
+                plt.tight_layout()
+                plt.savefig(os.path.join(step_ckpt_dir, f'metrics_step_{step}.png'))
                 plt.close()
                 
-                print(f"Saved checkpoint at step {step}")
+                print(f"Saved checkpoint and evaluation at step {step}")
             
             step += 1
             if step >= training_steps:
@@ -252,13 +308,54 @@ def train_policy(
     os.makedirs(final_ckpt_dir, exist_ok=True)
     policy.save_pretrained(final_ckpt_dir)
     
-    # Save final loss graph
-    plt.figure()
+    # Final evaluation
+    print("\n--- Final Evaluation ---")
+    eval_errors = []
+    num_eval_episodes = min(3, dataset.num_episodes)
+    
+    # Switch to eval mode
+    policy.eval()
+    
+    for episode_idx in range(num_eval_episodes):
+        print(f"Evaluating on episode {episode_idx}...")
+        gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_idx)
+        
+        if gt_actions is not None and pred_actions is not None:
+            # Save evaluation plots
+            eval_dir = os.path.join(final_ckpt_dir, f'eval_episode_{episode_idx}')
+            plot_results(gt_actions, pred_actions, eval_dir)
+            
+            # Calculate error
+            min_dim = min(pred_actions.size(1), gt_actions.size(1))
+            error = torch.mean(torch.abs(pred_actions[:, :min_dim] - gt_actions[:, :min_dim])).item()
+            eval_errors.append(error)
+            print(f"Episode {episode_idx} - Mean action error: {error:.3f}")
+    
+    # Calculate and log average error across episodes
+    if eval_errors:
+        avg_error = sum(eval_errors) / len(eval_errors)
+        mean_errors.append((step, avg_error))
+        print(f"Final average mean action error across {len(eval_errors)} episodes: {avg_error:.3f}")
+    
+    # Save combined loss and error graph
+    plt.figure(figsize=(12, 8))
+    plt.subplot(2, 1, 1)
     plt.plot(losses)
     plt.xlabel('Steps')
     plt.ylabel('Loss')
     plt.title('Training Loss (Final)')
-    plt.savefig(os.path.join(final_ckpt_dir, 'loss_final.png'))
+    
+    # Plot mean error if available
+    if mean_errors:
+        plt.subplot(2, 1, 2)
+        steps, errors = zip(*mean_errors)
+        plt.plot(steps, errors, 'r-')
+        plt.xlabel('Steps')
+        plt.ylabel('Mean Action Error')
+        plt.title('Evaluation Error')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(final_ckpt_dir, 'final_metrics.png'))
     plt.close()
     
     print(f"Saving final policy to {final_ckpt_dir}")
@@ -314,7 +411,12 @@ def evaluate_policy(
         gt_actions = torch.cat(gt_actions, dim=0)
         print(f"Final shapes - Pred: {actions.shape}, GT: {gt_actions.shape}")
         
-        # 크기가 같은지 확인하고 평균 오차 계산
+        # Fix for size mismatch: Ensure both tensors have the same first dimension
+        min_size = min(actions.size(0), gt_actions.size(0))
+        actions = actions[:min_size]
+        gt_actions = gt_actions[:min_size]
+        
+        # Ensure matching second dimension for comparison
         min_dim = min(actions.size(1), gt_actions.size(1))
         error = torch.mean(torch.abs(actions[:, :min_dim] - gt_actions[:, :min_dim])).item()
         print(f"Mean action error: {error:.3f}")
@@ -405,14 +507,16 @@ def main():
                         help='Action type to use for training: joint, eef_pose, or delta_q')
     parser.add_argument('--load_ckpt', action='store_true',
                         help='Whether to load from checkpoint')
+    parser.add_argument('--num_epochs', type=int, default=5000,
+                        help='Number of epochs to train')
     args = parser.parse_args()
     
     # Configuration
     REPO_NAME = 'omy_pnp'
-    ROOT = "./demo_data"  # Path to demonstration data
-    CKPT_DIR = "./ckpt/diffusion_y"  # Path to save checkpoints
+    ROOT = "./demo_data_3"  # Path to demonstration data
+    CKPT_DIR = "./ckpt/diffusion_y_v3"  # Path to save checkpoints
     DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-    TRAINING_STEPS = 2000
+    TRAINING_STEPS = args.num_epochs
     LOG_FREQ = 100
     
     # Set action type from command line argument
@@ -422,29 +526,26 @@ def main():
     try:
         # 정책 생성 또는 로드
         policy, dataset_metadata, action_type_ckpt_dir = create_or_load_policy(
-            CKPT_DIR, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt)
+            CKPT_DIR, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt, root_dir=ROOT)
         
         # Prepare dataset
-        dataset = prepare_data(dataset_metadata, policy.config, ACTION_TYPE)
+        dataset = prepare_data(dataset_metadata, policy.config, ACTION_TYPE, ROOT)
         print(f"Dataset loaded with {dataset.num_episodes} episodes")
         
         # Train the policy
-        losses = train_policy(policy, dataset, action_type_ckpt_dir, DEVICE, TRAINING_STEPS, LOG_FREQ)
+        losses = train_policy(
+            policy=policy, 
+            dataset=dataset, 
+            ckpt_dir=action_type_ckpt_dir, 
+            device=DEVICE, 
+            training_steps=TRAINING_STEPS, 
+            log_freq=LOG_FREQ,
+            eval_freq=100  # Evaluate every 100 steps
+        )
         
-        # Plot training loss
-        plt.figure(figsize=(10, 6))
-        plt.plot(losses)
-        plt.title(f'Training Loss ({ACTION_TYPE})')
-        plt.xlabel('Training Step')
-        plt.ylabel('Loss')
-        plt.savefig(os.path.join(action_type_ckpt_dir, 'training_loss.png'))
+        # We don't need additional evaluation/plotting since it's done in train_policy now
+        # The training_loss.png is also redundant since we now have metrics plots
         
-        # Evaluate the policy
-        gt_actions, pred_actions = evaluate_policy(policy, dataset, DEVICE)
-        
-        # Plot evaluation results
-        if gt_actions is not None and pred_actions is not None:
-            plot_results(gt_actions, pred_actions, action_type_ckpt_dir)
     except Exception as e:
         print(f"Error during training or evaluation: {e}")
         import traceback
