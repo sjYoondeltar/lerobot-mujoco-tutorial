@@ -179,7 +179,8 @@ def train_policy(
     ckpt_dir: str, 
     device: torch.device,
     training_steps: int = 5000,  # Increased from 3000 for better convergence
-    log_freq: int = 100
+    log_freq: int = 100,
+    eval_freq: int = 100  # Add evaluation frequency parameter
 ) -> List[float]:
     """
     Train the policy on the dataset.
@@ -191,6 +192,7 @@ def train_policy(
         device: Device to train on
         training_steps: Number of training steps
         log_freq: Frequency of logging
+        eval_freq: Frequency of evaluation
         
     Returns:
         losses: List of training losses
@@ -213,6 +215,7 @@ def train_policy(
     policy.train()
     policy.to(device)
     losses = []
+    mean_errors = []  # Track evaluation metrics
     step = 0
     done = False
     current_epoch = 0
@@ -231,22 +234,69 @@ def train_policy(
             if step % log_freq == 0:
                 print(f"Step: {step}, Epoch: {current_epoch}, Loss: {loss.item():.3f}")
             
-            # 100 스텝마다 모델 저장 (스텝 번호 포함)
-            if step % 100 == 0 and step > 0:
+            # Every eval_freq steps, evaluate the policy
+            if step % eval_freq == 0 and step > 0:
                 step_ckpt_dir = os.path.join(ckpt_dir, f'step_{step}')
                 os.makedirs(step_ckpt_dir, exist_ok=True)
                 policy.save_pretrained(step_ckpt_dir)
                 
+                # Evaluate on multiple episodes and calculate average error
+                print(f"\n--- Evaluating at step {step} ---")
+                eval_errors = []
+                # Evaluate on up to 3 episodes (or fewer if the dataset has fewer episodes)
+                num_eval_episodes = min(3, dataset.num_episodes)
+                
+                # Save current training mode and set to eval
+                training = policy.training
+                policy.eval()
+                
+                for episode_idx in range(num_eval_episodes):
+                    print(f"Evaluating on episode {episode_idx}...")
+                    gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_idx)
+                    
+                    if gt_actions is not None and pred_actions is not None:
+                        # Save evaluation plots
+                        eval_dir = os.path.join(step_ckpt_dir, f'eval_episode_{episode_idx}')
+                        plot_results(gt_actions, pred_actions, eval_dir)
+                        
+                        # Calculate error
+                        min_dim = min(pred_actions.size(1), gt_actions.size(1))
+                        error = torch.mean(torch.abs(pred_actions[:, :min_dim] - gt_actions[:, :min_dim])).item()
+                        eval_errors.append(error)
+                        print(f"Episode {episode_idx} - Mean action error: {error:.3f}")
+                
+                # Restore training mode
+                if training:
+                    policy.train()
+                
+                # Calculate and log average error across episodes
+                if eval_errors:
+                    avg_error = sum(eval_errors) / len(eval_errors)
+                    mean_errors.append((step, avg_error))
+                    print(f"Average mean action error across {len(eval_errors)} episodes: {avg_error:.3f}")
+                
                 # 손실 그래프 저장
-                plt.figure()
+                plt.figure(figsize=(12, 8))
+                plt.subplot(2, 1, 1)
                 plt.plot(losses)
                 plt.xlabel('Steps')
                 plt.ylabel('Loss')
                 plt.title(f'Training Loss (Step {step})')
-                plt.savefig(os.path.join(step_ckpt_dir, f'loss_step_{step}.png'))
+                
+                # Plot mean error if available
+                if mean_errors:
+                    plt.subplot(2, 1, 2)
+                    steps, errors = zip(*mean_errors)
+                    plt.plot(steps, errors, 'r-')
+                    plt.xlabel('Steps')
+                    plt.ylabel('Mean Action Error')
+                    plt.title('Evaluation Error')
+                
+                plt.tight_layout()
+                plt.savefig(os.path.join(step_ckpt_dir, f'metrics_step_{step}.png'))
                 plt.close()
                 
-                print(f"Saved checkpoint at step {step}")
+                print(f"Saved checkpoint and evaluation at step {step}")
             
             step += 1
             if step >= training_steps:
@@ -258,13 +308,54 @@ def train_policy(
     os.makedirs(final_ckpt_dir, exist_ok=True)
     policy.save_pretrained(final_ckpt_dir)
     
-    # Save final loss graph
-    plt.figure()
+    # Final evaluation
+    print("\n--- Final Evaluation ---")
+    eval_errors = []
+    num_eval_episodes = min(3, dataset.num_episodes)
+    
+    # Switch to eval mode
+    policy.eval()
+    
+    for episode_idx in range(num_eval_episodes):
+        print(f"Evaluating on episode {episode_idx}...")
+        gt_actions, pred_actions = evaluate_policy(policy, dataset, device, episode_idx)
+        
+        if gt_actions is not None and pred_actions is not None:
+            # Save evaluation plots
+            eval_dir = os.path.join(final_ckpt_dir, f'eval_episode_{episode_idx}')
+            plot_results(gt_actions, pred_actions, eval_dir)
+            
+            # Calculate error
+            min_dim = min(pred_actions.size(1), gt_actions.size(1))
+            error = torch.mean(torch.abs(pred_actions[:, :min_dim] - gt_actions[:, :min_dim])).item()
+            eval_errors.append(error)
+            print(f"Episode {episode_idx} - Mean action error: {error:.3f}")
+    
+    # Calculate and log average error across episodes
+    if eval_errors:
+        avg_error = sum(eval_errors) / len(eval_errors)
+        mean_errors.append((step, avg_error))
+        print(f"Final average mean action error across {len(eval_errors)} episodes: {avg_error:.3f}")
+    
+    # Save combined loss and error graph
+    plt.figure(figsize=(12, 8))
+    plt.subplot(2, 1, 1)
     plt.plot(losses)
     plt.xlabel('Steps')
     plt.ylabel('Loss')
     plt.title('Training Loss (Final)')
-    plt.savefig(os.path.join(final_ckpt_dir, 'loss_final.png'))
+    
+    # Plot mean error if available
+    if mean_errors:
+        plt.subplot(2, 1, 2)
+        steps, errors = zip(*mean_errors)
+        plt.plot(steps, errors, 'r-')
+        plt.xlabel('Steps')
+        plt.ylabel('Mean Action Error')
+        plt.title('Evaluation Error')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(final_ckpt_dir, 'final_metrics.png'))
     plt.close()
     
     print(f"Saving final policy to {final_ckpt_dir}")
@@ -442,22 +533,19 @@ def main():
         print(f"Dataset loaded with {dataset.num_episodes} episodes")
         
         # Train the policy
-        losses = train_policy(policy, dataset, action_type_ckpt_dir, DEVICE, TRAINING_STEPS, LOG_FREQ)
+        losses = train_policy(
+            policy=policy, 
+            dataset=dataset, 
+            ckpt_dir=action_type_ckpt_dir, 
+            device=DEVICE, 
+            training_steps=TRAINING_STEPS, 
+            log_freq=LOG_FREQ,
+            eval_freq=100  # Evaluate every 100 steps
+        )
         
-        # Plot training loss
-        plt.figure(figsize=(10, 6))
-        plt.plot(losses)
-        plt.title(f'Training Loss ({ACTION_TYPE})')
-        plt.xlabel('Training Step')
-        plt.ylabel('Loss')
-        plt.savefig(os.path.join(action_type_ckpt_dir, 'training_loss.png'))
+        # We don't need additional evaluation/plotting since it's done in train_policy now
+        # The training_loss.png is also redundant since we now have metrics plots
         
-        # Evaluate the policy
-        gt_actions, pred_actions = evaluate_policy(policy, dataset, DEVICE)
-        
-        # Plot evaluation results
-        if gt_actions is not None and pred_actions is not None:
-            plot_results(gt_actions, pred_actions, action_type_ckpt_dir)
     except Exception as e:
         print(f"Error during training or evaluation: {e}")
         import traceback
