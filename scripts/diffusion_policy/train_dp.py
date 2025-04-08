@@ -55,7 +55,7 @@ class EpisodeSampler(torch.utils.data.Sampler):
         return len(self.frame_ids)
 
 
-def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: bool = False) -> Tuple[DiffusionPolicy, LeRobotDatasetMetadata, str]:
+def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: bool = False, root_dir: str = './demo_data') -> Tuple[DiffusionPolicy, LeRobotDatasetMetadata, str]:
     """
     Create a new policy or load an existing one.
     
@@ -63,6 +63,7 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
         ckpt_dir: Directory to save/load checkpoints
         action_type: Type of action to train with ('joint', 'eef_pose', or 'delta_q')
         load_ckpt: Whether to load an existing checkpoint
+        root_dir: Root directory for dataset
         
     Returns:
         policy: DiffusionPolicy instance
@@ -70,7 +71,7 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
         action_type_ckpt_dir: Checkpoint directory for the specific action type
     """
     # 액션 타입에 따라 데이터셋 경로 설정
-    dataset_root = os.path.join('./demo_data', action_type)
+    dataset_root = os.path.join(root_dir, action_type)
     dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root=dataset_root)
     features = dataset_to_policy_features(dataset_metadata.features)
     
@@ -122,7 +123,7 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
     return policy, dataset_metadata, action_type_ckpt_dir
 
 
-def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig, action_type: str) -> LeRobotDataset:
+def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig, action_type: str, root_dir: str = './demo_data') -> LeRobotDataset:
     """
     Prepare dataset for training.
     
@@ -130,6 +131,7 @@ def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig,
         dataset_metadata: Metadata for the dataset
         cfg: Policy configuration
         action_type: Type of action to train with
+        root_dir: Root directory for dataset
         
     Returns:
         dataset: Dataset ready for training
@@ -154,15 +156,19 @@ def prepare_data(dataset_metadata: LeRobotDatasetMetadata, cfg: DiffusionConfig,
     ])
     
     # 액션 타입에 따라 데이터셋 경로 설정
-    dataset_root = os.path.join('./demo_data', action_type)
+    dataset_root = os.path.join(root_dir, action_type)
     
     # Create dataset
     dataset = LeRobotDataset(
-        f"omy_pnp_{action_type}", 
+        "omy_pnp", 
         delta_timestamps=delta_timestamps, 
         root=dataset_root, 
         image_transforms=transform
     )
+    
+    # Log dataset information for debugging
+    print(f"Dataset loaded with {dataset.num_episodes} episodes from {dataset_root}")
+    print(f"Dataset has {len(dataset)} samples")
     
     return dataset
 
@@ -314,7 +320,12 @@ def evaluate_policy(
         gt_actions = torch.cat(gt_actions, dim=0)
         print(f"Final shapes - Pred: {actions.shape}, GT: {gt_actions.shape}")
         
-        # 크기가 같은지 확인하고 평균 오차 계산
+        # Fix for size mismatch: Ensure both tensors have the same first dimension
+        min_size = min(actions.size(0), gt_actions.size(0))
+        actions = actions[:min_size]
+        gt_actions = gt_actions[:min_size]
+        
+        # Ensure matching second dimension for comparison
         min_dim = min(actions.size(1), gt_actions.size(1))
         error = torch.mean(torch.abs(actions[:, :min_dim] - gt_actions[:, :min_dim])).item()
         print(f"Mean action error: {error:.3f}")
@@ -405,14 +416,16 @@ def main():
                         help='Action type to use for training: joint, eef_pose, or delta_q')
     parser.add_argument('--load_ckpt', action='store_true',
                         help='Whether to load from checkpoint')
+    parser.add_argument('--num_epochs', type=int, default=5000,
+                        help='Number of epochs to train')
     args = parser.parse_args()
     
     # Configuration
     REPO_NAME = 'omy_pnp'
-    ROOT = "./demo_data"  # Path to demonstration data
-    CKPT_DIR = "./ckpt/diffusion_y"  # Path to save checkpoints
+    ROOT = "./demo_data_3"  # Path to demonstration data
+    CKPT_DIR = "./ckpt/diffusion_y_v3"  # Path to save checkpoints
     DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-    TRAINING_STEPS = 2000
+    TRAINING_STEPS = args.num_epochs
     LOG_FREQ = 100
     
     # Set action type from command line argument
@@ -422,10 +435,10 @@ def main():
     try:
         # 정책 생성 또는 로드
         policy, dataset_metadata, action_type_ckpt_dir = create_or_load_policy(
-            CKPT_DIR, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt)
+            CKPT_DIR, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt, root_dir=ROOT)
         
         # Prepare dataset
-        dataset = prepare_data(dataset_metadata, policy.config, ACTION_TYPE)
+        dataset = prepare_data(dataset_metadata, policy.config, ACTION_TYPE, ROOT)
         print(f"Dataset loaded with {dataset.num_episodes} episodes")
         
         # Train the policy
