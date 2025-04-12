@@ -97,9 +97,10 @@ def create_or_load_policy(ckpt_dir: str, action_type: str = 'joint', load_ckpt: 
     # Create policy configuration
     cfg = DiffusionConfig(
         input_features=input_features, 
-        output_features=output_features, 
-        horizon=16,  # Must be multiple of 8 due to downsampling factor
-        n_action_steps=1
+        output_features=output_features,
+        n_obs_steps=3,
+        horizon=8,  # Must be multiple of 8 due to downsampling factor
+        n_action_steps=4
     )
     
     # Adjust the checkpoint directory to include the action type
