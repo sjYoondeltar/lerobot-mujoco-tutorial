@@ -333,40 +333,154 @@ def evaluate_policy_simple(
     """에피소드 구분 없이 데이터셋의 랜덤 샘플에 대해 정책을 평가합니다."""
     policy.eval()
     
-    # 랜덤 샘플링을 위한 데이터로더 설정
-    indices = torch.randperm(len(dataset))[:max_samples]
-    sampler = torch.utils.data.SubsetRandomSampler(indices)
+    # 수정: 랜덤 샘플링 방식 변경
+    # 텐서 방식에서 리스트 방식으로 변경하여 오류 방지
+    dataset_size = len(dataset)
+    sample_size = min(max_samples, dataset_size)
+    # 리스트 인덱스로 변환하여 사용
+    indices = list(range(dataset_size))
+    np.random.shuffle(indices)  # numpy로 셔플
+    indices = indices[:sample_size]  # 필요한 수만큼만 선택
     
     test_dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=1,
-        sampler=sampler,
-        num_workers=4,
+        # 리스트로 샘플러 인덱스 전달
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices),
+        num_workers=0,  # 디버깅을 위해 worker 수를 0으로 변경
         pin_memory=device.type != "cpu",
     )
     
     policy.reset()
-    print(f"Evaluating policy on {min(max_samples, len(dataset))} random samples...")
+    print(f"Evaluating policy on {sample_size} random samples...")
     
     all_errors = []
+    sample_count = 0
+    # 디버깅용 변수들
+    has_nonzero_error = False
+    first_nonzero_idx = -1
+    first_gt_vals = None
+    first_pred_vals = None
+    
     for batch in test_dataloader:
         inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
-        action = policy.select_action(inp_batch)
         
-        # 예측값과 실제값 비교
-        if len(action.shape) == 3:  # (batch, time, action_dim)
-            pred = action[:, 0, :]  # 첫 번째 타임스텝만 사용
-        else:
-            pred = action
+        # 디버깅: 입력 batch의 구조와 'action' 값 확인
+        if sample_count == 0:
+            print("\nInput batch keys:", list(inp_batch.keys()))
+            if 'action' in inp_batch:
+                action_shape = inp_batch['action'].shape
+                print(f"GT action shape: {action_shape}")
+                # GT 값의 통계 출력
+                action_stats = {
+                    'min': inp_batch['action'].min().item(),
+                    'max': inp_batch['action'].max().item(),
+                    'mean': inp_batch['action'].mean().item(),
+                    'std': inp_batch['action'].std().item() if inp_batch['action'].numel() > 1 else 0,
+                    'zeros': torch.sum(inp_batch['action'] == 0).item(),
+                    'total_elements': inp_batch['action'].numel()
+                }
+                print(f"GT action stats: {action_stats}")
+                if action_stats['zeros'] == action_stats['total_elements']:
+                    print("WARNING: GT action is all zeros!")
+            else:
+                print("WARNING: 'action' key not found in batch!")
+                print("Available keys:", list(inp_batch.keys()))
+        
+        try:
+            # 모델 예측 시도
+            action = policy.select_action(inp_batch)
             
-        gt = inp_batch["action"][:, 0, :]  # 첫 번째 타임스텝만 사용
-        
-        # 차원 맞추기
-        min_dim = min(pred.size(1), gt.size(1))
-        batch_error = torch.mean(torch.square(pred[:, :min_dim] - gt[:, :min_dim])).item()
-        all_errors.append(batch_error)
+            # 예측값과 실제값 비교
+            if len(action.shape) == 3:  # (batch, time, action_dim)
+                pred = action[:, 0, :]  # 첫 번째 타임스텝만 사용
+            else:
+                pred = action
+                
+            gt = inp_batch["action"][:, 0, :]  # 첫 번째 타임스텝만 사용
+            
+            # 디버깅: 첫 샘플의 예측값과 GT 출력
+            if sample_count == 0:
+                print(f"First prediction shape: {pred.shape}")
+                print(f"First GT shape: {gt.shape}")
+                
+                # 예측값 통계
+                pred_stats = {
+                    'min': pred.min().item(),
+                    'max': pred.max().item(),
+                    'mean': pred.mean().item(),
+                    'std': pred.std().item() if pred.numel() > 1 else 0,
+                    'zeros': torch.sum(pred == 0).item(),
+                    'total_elements': pred.numel()
+                }
+                print(f"Prediction stats: {pred_stats}")
+                if pred_stats['zeros'] == pred_stats['total_elements']:
+                    print("WARNING: Prediction is all zeros!")
+                
+                # 첫 10개 값 출력 (지나치게 길지 않도록)
+                first_gt_vals = gt[0, :10].cpu().detach().numpy()
+                first_pred_vals = pred[0, :10].cpu().detach().numpy()
+                print(f"First 10 GT values: {first_gt_vals}")
+                print(f"First 10 pred values: {first_pred_vals}")
+            
+            # 차원 맞추기
+            min_dim = min(pred.size(1), gt.size(1))
+            squared_diff = torch.square(pred[:, :min_dim] - gt[:, :min_dim])
+            batch_error = torch.mean(squared_diff).item()
+            
+            # 디버깅: 첫 비제로 에러 기록
+            if batch_error > 0 and not has_nonzero_error:
+                has_nonzero_error = True
+                first_nonzero_idx = sample_count
+                print(f"First non-zero error at sample {sample_count}: {batch_error:.6f}")
+                # 이 샘플의 처음 10개 값 출력
+                current_gt = gt[0, :10].cpu().detach().numpy()
+                current_pred = pred[0, :10].cpu().detach().numpy()
+                print(f"This sample GT: {current_gt}")
+                print(f"This sample pred: {current_pred}")
+            
+            all_errors.append(batch_error)
+            
+        except Exception as e:
+            print(f"Error processing sample {sample_count}: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+            
+        sample_count += 1
+        # 샘플 10개마다 진행 상황 표시
+        if sample_count % 10 == 0:
+            print(f"Processed {sample_count}/{sample_size} samples")
+    
+    # 결과 분석 출력
+    print("\n--- Evaluation Results Analysis ---")
+    print(f"Total samples processed: {sample_count}")
+    print(f"Samples with errors: {len(all_errors)}")
     
     if all_errors:
+        # 에러 통계
+        error_stats = {
+            'min': min(all_errors),
+            'max': max(all_errors),
+            'mean': sum(all_errors) / len(all_errors),
+            'zeros': sum(1 for e in all_errors if e == 0),
+            'total': len(all_errors)
+        }
+        print(f"Error statistics: {error_stats}")
+        print(f"Zero errors: {error_stats['zeros']}/{error_stats['total']} ({error_stats['zeros']/error_stats['total']*100:.1f}%)")
+        
+        # 첫 번째 샘플과 비제로 샘플 요약
+        if first_gt_vals is not None and first_pred_vals is not None:
+            print("\nFirst sample summary:")
+            print(f"GT: {first_gt_vals}")
+            print(f"Pred: {first_pred_vals}")
+        
+        if has_nonzero_error:
+            print(f"\nFirst non-zero error was at sample {first_nonzero_idx}")
+        else:
+            print("\nALL ERRORS WERE ZERO - THIS IS SUSPICIOUS!")
+            print("Check if the predictions exactly match ground truth or if there's a problem with the evaluation.")
+        
         mse = sum(all_errors) / len(all_errors)
         return mse
     else:
