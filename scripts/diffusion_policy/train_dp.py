@@ -355,9 +355,7 @@ def evaluate_policy_simple(
         inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
         
         try:
-            inp_batch_test = inp_batch.copy()
-            inp_batch_test.pop("action", None)
-            action = policy.select_action(inp_batch_test)
+            action = policy.select_action(inp_batch)
             
             pred = action
             pred_len = pred.shape[1]
