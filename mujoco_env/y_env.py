@@ -275,33 +275,33 @@ class SimpleEnv:
 
 
         '''
-        # char = self.env.get_key_pressed()
+        amplifier = 4.0  # Define the amplification factor
         dpos = np.zeros(3)
         drot = np.eye(3)
         if self.env.is_key_pressed_repeat(key=glfw.KEY_S):
-            dpos += np.array([0.007,0.0,0.0])
+            dpos += np.array([0.007,0.0,0.0]) * amplifier
         if self.env.is_key_pressed_repeat(key=glfw.KEY_W):
-            dpos += np.array([-0.007,0.0,0.0])
+            dpos += np.array([-0.007,0.0,0.0]) * amplifier
         if self.env.is_key_pressed_repeat(key=glfw.KEY_A):
-            dpos += np.array([0.0,-0.007,0.0])
+            dpos += np.array([0.0,-0.007,0.0]) * amplifier
         if self.env.is_key_pressed_repeat(key=glfw.KEY_D):
-            dpos += np.array([0.0,0.007,0.0])
+            dpos += np.array([0.0,0.007,0.0]) * amplifier
         if self.env.is_key_pressed_repeat(key=glfw.KEY_R):
-            dpos += np.array([0.0,0.0,0.007])
+            dpos += np.array([0.0,0.0,0.007]) * amplifier
         if self.env.is_key_pressed_repeat(key=glfw.KEY_F):
-            dpos += np.array([0.0,0.0,-0.007])
+            dpos += np.array([0.0,0.0,-0.007]) * amplifier
         if  self.env.is_key_pressed_repeat(key=glfw.KEY_LEFT):
-            drot = rotation_matrix(angle=0.1 * 0.3, direction=[0.0, 1.0, 0.0])[:3, :3]
+            drot = rotation_matrix(angle=0.1 * 0.3 * amplifier, direction=[0.0, 1.0, 0.0])[:3, :3]
         if  self.env.is_key_pressed_repeat(key=glfw.KEY_RIGHT):
-            drot = rotation_matrix(angle=-0.1 * 0.3, direction=[0.0, 1.0, 0.0])[:3, :3]
+            drot = rotation_matrix(angle=-0.1 * 0.3 * amplifier, direction=[0.0, 1.0, 0.0])[:3, :3]
         if self.env.is_key_pressed_repeat(key=glfw.KEY_DOWN):
-            drot = rotation_matrix(angle=0.1 * 0.3, direction=[1.0, 0.0, 0.0])[:3, :3]
+            drot = rotation_matrix(angle=0.1 * 0.3 * amplifier, direction=[1.0, 0.0, 0.0])[:3, :3]
         if self.env.is_key_pressed_repeat(key=glfw.KEY_UP):
-            drot = rotation_matrix(angle=-0.1 * 0.3, direction=[1.0, 0.0, 0.0])[:3, :3]
+            drot = rotation_matrix(angle=-0.1 * 0.3 * amplifier, direction=[1.0, 0.0, 0.0])[:3, :3]
         if self.env.is_key_pressed_repeat(key=glfw.KEY_Q):
-            drot = rotation_matrix(angle=0.1 * 0.3, direction=[0.0, 0.0, 1.0])[:3, :3]
+            drot = rotation_matrix(angle=0.1 * 0.3 * amplifier, direction=[0.0, 0.0, 1.0])[:3, :3]
         if self.env.is_key_pressed_repeat(key=glfw.KEY_E):
-            drot = rotation_matrix(angle=-0.1 * 0.3, direction=[0.0, 0.0, 1.0])[:3, :3]
+            drot = rotation_matrix(angle=-0.1 * 0.3 * amplifier, direction=[0.0, 0.0, 1.0])[:3, :3]
         if self.env.is_key_pressed_once(key=glfw.KEY_Z):
             return np.zeros(7, dtype=np.float32), True
         if self.env.is_key_pressed_once(key=glfw.KEY_SPACE):
