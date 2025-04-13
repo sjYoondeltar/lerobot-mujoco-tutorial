@@ -159,7 +159,7 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
     
     while env.env.is_viewer_alive() and episode_id < num_demos:
         env.step_env()
-        if env.env.loop_every(HZ=20):
+        if env.env.loop_every(HZ=5):
             # check if the episode is done
             done = env.check_success()
             if done: 
@@ -271,8 +271,8 @@ def main():
     # Configuration
     SEED = None  # Set to None to randomize object positions
     REPO_NAME = 'omy_pnp'
-    NUM_DEMO = 5  # Number of demonstrations to collect
-    ROOT = "./demo_data"  # The root directory to save the demonstrations
+    NUM_DEMO = 25  # Number of demonstrations to collect
+    ROOT = "./demo_data_4"  # The root directory to save the demonstrations
     TASK_NAME = 'Put mug cup on the plate'
     XML_PATH = './asset/example_scene_y.xml'
     
