@@ -189,8 +189,9 @@ def load_policy(policy_type, ckpt_dir, action_type='joint'):
             cfg = DiffusionConfig(
                 input_features=input_features, 
                 output_features=output_features, 
-                horizon=16,  # Match training parameter
-                n_action_steps=1 # Match training parameter
+                n_obs_steps=3,
+                horizon=8,  # Must be multiple of 8 due to downsampling factor
+                n_action_steps=4
             )
 
             # Adjust the checkpoint directory to include the action type
