@@ -30,7 +30,7 @@ from lerobot.common.policies.act.configuration_act import ACTConfig
 from lerobot.common.datasets.factory import resolve_delta_timestamps
 
 
-def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
+def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False, root_dir='./demo_data_4'):
     """
     Create a new policy or load from checkpoint
     
@@ -38,9 +38,10 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
         ckpt_dir: Directory to save or load the checkpoint from
         action_type: Type of action to train with ('joint', 'eef_pose', or 'delta_q')
         load_ckpt: Whether to load from checkpoint
+        root_dir: Root directory for dataset
     """
     # 액션 타입에 따라 데이터셋 경로 설정
-    dataset_root = os.path.join('./demo_data', action_type)
+    dataset_root = os.path.join(root_dir, action_type)
     dataset_metadata = LeRobotDatasetMetadata("omy_pnp", root=dataset_root)
     features = dataset_to_policy_features(dataset_metadata.features)
     
@@ -91,8 +92,17 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False):
     return policy, dataset_metadata, action_type_ckpt_dir
 
 
-def prepare_data(dataset_name, policy, dataset_metadata, action_type):
-    """Prepare data for training using the new API"""
+def prepare_data(dataset_name, policy, dataset_metadata, action_type, root_dir='./demo_data_4'):
+    """
+    Prepare data for training using the new API
+    
+    Args:
+        dataset_name: Name of the dataset
+        policy: Policy for which to prepare data
+        dataset_metadata: Metadata for the dataset
+        action_type: Type of action to train with
+        root_dir: Root directory for dataset
+    """
     # Policy의 config에서 delta_timestamps 해석
     delta_timestamps = resolve_delta_timestamps(policy.config, dataset_metadata)
     
@@ -109,7 +119,7 @@ def prepare_data(dataset_name, policy, dataset_metadata, action_type):
     ])
 
     # 액션 타입에 따라 데이터셋 경로 설정
-    dataset_root = os.path.join('./demo_data', action_type)
+    dataset_root = os.path.join(root_dir, action_type)
     
     # 새 API 방식으로 데이터셋 생성, image_transforms 인자 사용
     dataset = LeRobotDataset(
@@ -368,6 +378,8 @@ def main():
                         help='Type of action to train with')
     parser.add_argument('--load_ckpt', action='store_true', help='Whether to load from checkpoint')
     parser.add_argument('--num_epochs', type=int, default=3000, help='Number of epochs to train')
+    parser.add_argument('--data_root', type=str, default='./demo_data_4', help='Path to demonstration data')
+    parser.add_argument('--ckpt_dir', type=str, default='./ckpt/act_y_v4', help='Path to save checkpoints')
     args = parser.parse_args()
 
     # Use global variable to share action type
@@ -378,15 +390,15 @@ def main():
     
     try:
         # 체크포인트 디렉토리 설정
-        ckpt_dir = './ckpt/act_y'
+        ckpt_dir = args.ckpt_dir
         
         # 정책 생성 또는 로드
         policy, dataset_metadata, action_type_ckpt_dir = create_or_load_policy(
-            ckpt_dir, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt
+            ckpt_dir, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt, root_dir=args.data_root
         )
         
         # 데이터 준비
-        dataset, dataloader = prepare_data('omy_pnp', policy, dataset_metadata, ACTION_TYPE)
+        dataset, dataloader = prepare_data('omy_pnp', policy, dataset_metadata, ACTION_TYPE, root_dir=args.data_root)
         
         # 정책 훈련
         print("Training policy...")
