@@ -387,12 +387,16 @@ def main():
                         help='Whether to load from checkpoint')
     parser.add_argument('--num_epochs', type=int, default=5000,
                         help='Number of epochs to train')
+    parser.add_argument('--data_root', type=str, default='./demo_data_4',
+                        help='Path to demonstration data')
+    parser.add_argument('--ckpt_dir', type=str, default='./ckpt/diffusion_y_v4',
+                        help='Path to save checkpoints')
     args = parser.parse_args()
     
     # Configuration
     REPO_NAME = 'omy_pnp'
-    ROOT = "./demo_data_3"  # Path to demonstration data
-    CKPT_DIR = "./ckpt/diffusion_y_v3"  # Path to save checkpoints
+    ROOT = args.data_root  # Path to demonstration data from argument
+    CKPT_DIR = args.ckpt_dir  # Path to save checkpoints from argument
     DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     TRAINING_STEPS = args.num_epochs
     LOG_FREQ = 100
