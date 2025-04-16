@@ -216,7 +216,6 @@ def train_policy(
     policy.train()
     policy.to(device)
     losses = []
-    mean_errors = []  # Track evaluation metrics
     step = 0
     done = False
     current_epoch = 0
@@ -235,51 +234,23 @@ def train_policy(
             if step % log_freq == 0:
                 print(f"Step: {step}, Epoch: {current_epoch}, Loss: {loss.item():.3f}")
             
-            # 평가 부분 수정
+            # 체크포인트 저장
             if step % eval_freq == 0 and step > 0:
                 step_ckpt_dir = os.path.join(ckpt_dir, f'step_{step}')
                 os.makedirs(step_ckpt_dir, exist_ok=True)
                 policy.save_pretrained(step_ckpt_dir)
                 
-                # 에피소드 구분 없이 단일 MSE 평가
-                print(f"\n--- Evaluating at step {step} ---")
-                
-                # Save current training mode and set to eval
-                training = policy.training
-                policy.eval()
-                
-                # 에피소드 구분 없이 한번에 평가
-                mse = evaluate_policy_simple(policy, dataset, device)
-                if mse is not None:
-                    mean_errors.append((step, mse))
-                    print(f"MSE: {mse:.5f}")
-                
-                # Restore training mode
-                if training:
-                    policy.train()
-                
                 # 손실 그래프 저장
-                plt.figure(figsize=(12, 8))
-                plt.subplot(2, 1, 1)
+                plt.figure(figsize=(10, 6))
                 plt.plot(losses)
                 plt.xlabel('Steps')
                 plt.ylabel('Loss')
                 plt.title(f'Training Loss (Step {step})')
-                
-                # Plot mean error if available
-                if mean_errors:
-                    plt.subplot(2, 1, 2)
-                    steps, errors = zip(*mean_errors)
-                    plt.plot(steps, errors, 'r-')
-                    plt.xlabel('Steps')
-                    plt.ylabel('MSE')
-                    plt.title('Evaluation MSE')
-                
                 plt.tight_layout()
-                plt.savefig(os.path.join(step_ckpt_dir, f'metrics_step_{step}.png'))
+                plt.savefig(os.path.join(step_ckpt_dir, f'loss_step_{step}.png'))
                 plt.close()
                 
-                print(f"Saved checkpoint and evaluation at step {step}")
+                print(f"Saved checkpoint at step {step}")
             
             step += 1
             if step >= training_steps:
@@ -291,89 +262,19 @@ def train_policy(
     os.makedirs(final_ckpt_dir, exist_ok=True)
     policy.save_pretrained(final_ckpt_dir)
     
-    # 최종 평가
-    print("\n--- Final Evaluation ---")
-    policy.eval()
-    mse = evaluate_policy_simple(policy, dataset, device)
-    if mse is not None:
-        mean_errors.append((step, mse))
-        print(f"Final MSE: {mse:.5f}")
-    
-    # Save combined loss and error graph
-    plt.figure(figsize=(12, 8))
-    plt.subplot(2, 1, 1)
+    # 최종 손실 그래프 저장
+    plt.figure(figsize=(10, 6))
     plt.plot(losses)
     plt.xlabel('Steps')
     plt.ylabel('Loss')
     plt.title('Training Loss (Final)')
-    
-    # Plot mean error if available
-    if mean_errors:
-        plt.subplot(2, 1, 2)
-        steps, errors = zip(*mean_errors)
-        plt.plot(steps, errors, 'r-')
-        plt.xlabel('Steps')
-        plt.ylabel('MSE')
-        plt.title('Evaluation MSE')
-    
     plt.tight_layout()
-    plt.savefig(os.path.join(final_ckpt_dir, 'final_metrics.png'))
+    plt.savefig(os.path.join(final_ckpt_dir, 'loss_final.png'))
     plt.close()
     
     print(f"Saving final policy to {final_ckpt_dir}")
     
     return losses
-
-
-def evaluate_policy_simple(
-    policy: DiffusionPolicy, 
-    dataset: LeRobotDataset, 
-    device: torch.device,
-    max_samples: int = 100
-) -> float:
-    """에피소드 구분 없이 데이터셋의 랜덤 샘플에 대해 정책을 평가합니다."""
-    policy.eval()
-    
-    dataset_size = len(dataset)
-    sample_size = min(max_samples, dataset_size)
-    indices = list(range(dataset_size))
-    np.random.shuffle(indices)
-    indices = indices[:sample_size]
-    
-    test_dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=1,
-        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices),
-        num_workers=0,
-        pin_memory=device.type != "cpu",
-    )
-    
-    policy.reset()
-    all_errors = []
-    
-    for batch in test_dataloader:
-        inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
-        
-        try:
-            action = policy.select_action(inp_batch)
-            
-            pred = action
-            pred_len = pred.shape[1]
-            gt = inp_batch["action"][:, :pred_len, :]
-            
-            squared_diff = torch.square(pred - gt)
-            batch_error = torch.mean(squared_diff)
-            all_errors.append(batch_error)
-            
-        except Exception as e:
-            print(f"Error during evaluation: {e}")
-            continue
-    
-    if all_errors:
-        mse = sum(all_errors) / len(all_errors)
-        return mse
-    else:
-        return None
 
 
 def main():
@@ -387,12 +288,16 @@ def main():
                         help='Whether to load from checkpoint')
     parser.add_argument('--num_epochs', type=int, default=5000,
                         help='Number of epochs to train')
+    parser.add_argument('--data_root', type=str, default='./demo_data_4',
+                        help='Path to demonstration data')
+    parser.add_argument('--ckpt_dir', type=str, default='./ckpt/diffusion_y_v4',
+                        help='Path to save checkpoints')
     args = parser.parse_args()
     
     # Configuration
     REPO_NAME = 'omy_pnp'
-    ROOT = "./demo_data_3"  # Path to demonstration data
-    CKPT_DIR = "./ckpt/diffusion_y_v3"  # Path to save checkpoints
+    ROOT = args.data_root  # Path to demonstration data from argument
+    CKPT_DIR = args.ckpt_dir  # Path to save checkpoints from argument
     DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     TRAINING_STEPS = args.num_epochs
     LOG_FREQ = 100
@@ -418,14 +323,11 @@ def main():
             device=DEVICE, 
             training_steps=TRAINING_STEPS, 
             log_freq=LOG_FREQ,
-            eval_freq=100  # Evaluate every 100 steps
+            eval_freq=100  # 체크포인트 저장 빈도
         )
         
-        # We don't need additional evaluation/plotting since it's done in train_policy now
-        # The training_loss.png is also redundant since we now have metrics plots
-        
     except Exception as e:
-        print(f"Error during training or evaluation: {e}")
+        print(f"Error during training: {e}")
         import traceback
         traceback.print_exc()
         
