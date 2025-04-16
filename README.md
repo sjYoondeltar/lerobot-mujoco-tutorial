@@ -143,6 +143,9 @@ python scripts/act/train.py --action_type ee_pose
 
 # Train ACT with delta joint angles
 python scripts/act/train.py --action_type delta_q
+
+# Specify custom data and checkpoint directories
+python scripts/act/train.py --action_type joint --data_root ./custom_data --ckpt_dir ./custom_checkpoints
 ```
 
 **This takes around 30~60 mins**.
@@ -154,7 +157,13 @@ You can choose from three action types for training:
 - `ee_pose`: Uses end-effector pose (x,y,z,roll,pitch,yaw,gripper)
 - `delta_q`: Uses delta joint angles (changes from current position)
 
-The trained checkpoint will be saved in './ckpt/act_y/{action_type}' folder.
+Additional command-line arguments:
+- `--data_root`: Path to demonstration data directory (default: './demo_data_4')
+- `--ckpt_dir`: Path to save checkpoints (default: './ckpt/act_y_v4')
+- `--num_epochs`: Number of training epochs (default: 3000)
+- `--load_ckpt`: Whether to load from an existing checkpoint
+
+The trained checkpoint will be saved in '{ckpt_dir}/{action_type}' folder.
 
 To evaluate the policy on the dataset, you can calculate the error between ground-truth actions from the dataset.
 
@@ -181,6 +190,34 @@ dataloader = torch.utils.data.DataLoader(
 )
 ```
 </details>
+
+## 3.1 Train Diffusion Policy
+
+You can also train a diffusion policy on your dataset using the command-line script:
+
+```bash
+# Train diffusion policy with joint angles (default)
+python scripts/diffusion_policy/train_dp.py --action_type joint
+
+# Train diffusion policy with end-effector pose
+python scripts/diffusion_policy/train_dp.py --action_type ee_pose
+
+# Train diffusion policy with delta joint angles
+python scripts/diffusion_policy/train_dp.py --action_type delta_q
+
+# Specify custom data and checkpoint directories
+python scripts/diffusion_policy/train_dp.py --action_type joint --data_root ./custom_data --ckpt_dir ./custom_checkpoints
+```
+
+**This takes longer than ACT training (1-2 hours)**.
+
+Additional command-line arguments:
+- `--data_root`: Path to demonstration data directory (default: './demo_data_4')
+- `--ckpt_dir`: Path to save checkpoints (default: './ckpt/diffusion_y_v4')
+- `--num_epochs`: Number of training epochs (default: 5000)
+- `--load_ckpt`: Whether to load from an existing checkpoint
+
+The trained checkpoint will be saved in '{ckpt_dir}/{action_type}' folder.
 
 ## 4. Deploy your Policy
 
