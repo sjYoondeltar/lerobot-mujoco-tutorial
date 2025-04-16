@@ -270,7 +270,10 @@ def train_policy(
                 if mean_errors:
                     plt.subplot(2, 1, 2)
                     steps, errors = zip(*mean_errors)
-                    plt.plot(steps, errors, 'r-')
+                    # CUDA 텐서를 CPU로 변환
+                    steps_cpu = [s.cpu().item() if isinstance(s, torch.Tensor) else s for s in steps]
+                    errors_cpu = [e.cpu().item() if isinstance(e, torch.Tensor) else e for e in errors]
+                    plt.plot(steps_cpu, errors_cpu, 'r-')
                     plt.xlabel('Steps')
                     plt.ylabel('MSE')
                     plt.title('Evaluation MSE')
@@ -311,7 +314,10 @@ def train_policy(
     if mean_errors:
         plt.subplot(2, 1, 2)
         steps, errors = zip(*mean_errors)
-        plt.plot(steps, errors, 'r-')
+        # CUDA 텐서를 CPU로 변환
+        steps_cpu = [s.cpu().item() if isinstance(s, torch.Tensor) else s for s in steps]
+        errors_cpu = [e.cpu().item() if isinstance(e, torch.Tensor) else e for e in errors]
+        plt.plot(steps_cpu, errors_cpu, 'r-')
         plt.xlabel('Steps')
         plt.ylabel('MSE')
         plt.title('Evaluation MSE')
@@ -355,7 +361,9 @@ def evaluate_policy_simple(
         inp_batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
         
         try:
-            action = policy.select_action(inp_batch)
+            inp_batch_test = inp_batch.copy()
+            inp_batch_test.pop("action", None)
+            action = policy.select_action(inp_batch_test)
             
             pred = action
             pred_len = pred.shape[1]
@@ -363,7 +371,7 @@ def evaluate_policy_simple(
             
             squared_diff = torch.square(pred - gt)
             batch_error = torch.mean(squared_diff)
-            all_errors.append(batch_error)
+            all_errors.append(batch_error.item())  # CUDA 텐서에서 스칼라 값으로 변환
             
         except Exception as e:
             print(f"Error during evaluation: {e}")
