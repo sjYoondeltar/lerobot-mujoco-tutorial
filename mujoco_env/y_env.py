@@ -174,15 +174,8 @@ class SimpleEnv:
         q = np.concatenate([q, gripper_cmd])
 
         self.q = q
-        if self.state_type == 'joint_angle':
-            return self.get_joint_state()
-        elif self.state_type == 'ee_pose':
-            return self.get_ee_pose()
-        elif self.state_type == 'delta_q' or self.action_type == 'delta_joint_angle':
-            dq =  self.get_delta_q()
-            return dq
-        else:
-            raise ValueError('state_type not recognized')
+        
+        return self.get_joint_state()
 
     def step_env(self):
         self.env.step(self.q)
