@@ -441,7 +441,7 @@ class MultiObjEnv(SimpleEnv):
         self.q = np.concatenate([q_zero, np.array([0.0]*4)])
         self.p0, self.R0 = self.env.get_pR_body(body_name='tcp_link')
         mug_init_pose, plate_init_pose = self.get_obj_pose()
-        self.obj_init_pose = np.concatenate([mug_init_pose, plate_init_pose],dtype=np.float32)
+        self.obj_init_pose = np.concatenate([np.array(mug_init_pose).reshape(-1), np.array(plate_init_pose).reshape(-1)],dtype=np.float32)
         for _ in range(100):
             self.step_env()
         print("DONE INITIALIZATION")
@@ -481,7 +481,7 @@ class MultiObjEnv(SimpleEnv):
             if 'mug' in obj_names[i]:
                 p_mug_list.append(self.env.get_p_body(obj_names[i]))
         p_plate = self.env.get_p_body('body_obj_plate_11')
-        return np.array(p_mug_list).reshape(-1), p_plate
+        return p_mug_list, p_plate
 
     def check_success(self):
         '''
