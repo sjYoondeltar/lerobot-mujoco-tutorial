@@ -275,34 +275,23 @@ def main():
     ROOT = "./demo_data_4"  # The root directory to save the demonstrations
     TASK_NAME = 'Put mug cup on the plate'
     XML_PATH = './asset/example_scene_y.xml'
-    
-    # 모든 액션 타입에 대한 데이터셋 수집 여부 확인
-    print("Do you want to collect separate datasets for each action type? (y/n)")
-    separate_datasets = input().lower() == 'y'
+
+    # 항상 액션 타입별로 별도의 데이터셋 생성
+    action_types = ['joint', 'eef_pose', 'delta_q']
+    datasets = {}
     
     # Import the SimpleEnv here to avoid immediate import
     from mujoco_env.y_env import SimpleEnv
     
     # Define the environment
     env = SimpleEnv(XML_PATH, seed=SEED, state_type='joint_angle')
+
+    for action_type in action_types:
+        print(f"\nCreating dataset for action type: {action_type}")
+        datasets[action_type] = create_dataset(REPO_NAME, ROOT, action_type)
     
-    if separate_datasets:
-        # 액션 타입별로 별도의 데이터셋 생성
-        action_types = ['joint', 'eef_pose', 'delta_q']
-        datasets = {}
-        
-        for action_type in action_types:
-            print(f"\nCreating dataset for action type: {action_type}")
-            datasets[action_type] = create_dataset(REPO_NAME, ROOT, action_type)
-        
-        # 모든 데이터셋에 데모 수집
-        collect_demonstrations(env, datasets, TASK_NAME, NUM_DEMO, SEED)
-    else:
-        # 기존 방식대로 단일 데이터셋 생성
-        dataset = create_dataset(REPO_NAME, ROOT)
-        
-        # 단일 데이터셋에 데모 수집
-        collect_demonstrations(env, dataset, TASK_NAME, NUM_DEMO, SEED)
+    # 모든 데이터셋에 데모 수집
+    collect_demonstrations(env, datasets, TASK_NAME, NUM_DEMO, SEED)
 
 
 if __name__ == "__main__":
