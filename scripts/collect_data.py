@@ -37,7 +37,7 @@ from PIL import Image
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 
-def create_dataset(repo_name, root, action_type=None):
+def create_dataset(repo_name, root, action_type=None, env_type='simple'):
     """Create or load a dataset for robot demonstrations
     
     Args:
@@ -62,9 +62,10 @@ def create_dataset(repo_name, root, action_type=None):
 
     if create_new:
         # 액션 타입별로 다른 feature 설정
-        features = {
-            "observation.image": {
-                "dtype": "image",
+        if env_type == 'simple':
+            features = {
+                "observation.image": {
+                    "dtype": "image",
                 "shape": (256, 256, 3),
                 "names": ["height", "width", "channels"],
             },
@@ -84,7 +85,29 @@ def create_dataset(repo_name, root, action_type=None):
                 "names": ["obj_init"],  # just the initial position of the object
             },
         }
-        
+        elif env_type == 'multi_object':
+            features = {
+                "observation.image": {
+                    "dtype": "image",
+                "shape": (256, 256, 3),
+                "names": ["height", "width", "channels"],
+            },
+            "observation.wrist_image": {
+                "dtype": "image",
+                "shape": (256, 256, 3),
+                "names": ["height", "width", "channel"],
+            },
+            "observation.state": {
+                "dtype": "float32",
+                "shape": (6,),
+                "names": ["state"],  # x, y, z, roll, pitch, yaw
+            },
+            "obj_init": {
+                "dtype": "float32",
+                "shape": (9,),
+                "names": ["obj_init"],  # just the initial position of the object
+            },
+        }
         # 액션 타입에 따라 액션 feature 추가
         if action_type == 'joint':
             features["action"] = {
@@ -273,36 +296,28 @@ def main():
     REPO_NAME = 'omy_pnp'
     NUM_DEMO = 25  # Number of demonstrations to collect
     ROOT = "./demo_data_4"  # The root directory to save the demonstrations
-    TASK_NAME = 'Put mug cup on the plate'
-    XML_PATH = './asset/example_scene_y.xml'
-    
-    # 모든 액션 타입에 대한 데이터셋 수집 여부 확인
-    print("Do you want to collect separate datasets for each action type? (y/n)")
-    separate_datasets = input().lower() == 'y'
+    TASK_NAME = 'Put red mug cup on the plate'
+    # ENV_TYPE = 'simple'
+    ENV_TYPE = 'multi_object'
+    # 항상 액션 타입별로 별도의 데이터셋 생성
+    action_types = ['joint', 'eef_pose', 'delta_q']
+    datasets = {}
     
     # Import the SimpleEnv here to avoid immediate import
-    from mujoco_env.y_env import SimpleEnv
+    from mujoco_env.y_env import SimpleEnv, MultiObjEnv
     
     # Define the environment
-    env = SimpleEnv(XML_PATH, seed=SEED, state_type='joint_angle')
+    if ENV_TYPE == 'simple':
+        env = SimpleEnv('./asset/example_scene_y.xml', seed=SEED, state_type='joint_angle')
+    elif ENV_TYPE == 'multi_object':
+        env = MultiObjEnv('./asset/example_scene_y_multi.xml', seed=SEED, state_type='joint_angle')
+
+    for action_type in action_types:
+        print(f"\nCreating dataset for action type: {action_type}")
+        datasets[action_type] = create_dataset(REPO_NAME, ROOT, action_type, env_type=ENV_TYPE)
     
-    if separate_datasets:
-        # 액션 타입별로 별도의 데이터셋 생성
-        action_types = ['joint', 'eef_pose', 'delta_q']
-        datasets = {}
-        
-        for action_type in action_types:
-            print(f"\nCreating dataset for action type: {action_type}")
-            datasets[action_type] = create_dataset(REPO_NAME, ROOT, action_type)
-        
-        # 모든 데이터셋에 데모 수집
-        collect_demonstrations(env, datasets, TASK_NAME, NUM_DEMO, SEED)
-    else:
-        # 기존 방식대로 단일 데이터셋 생성
-        dataset = create_dataset(REPO_NAME, ROOT)
-        
-        # 단일 데이터셋에 데모 수집
-        collect_demonstrations(env, dataset, TASK_NAME, NUM_DEMO, SEED)
+    # 모든 데이터셋에 데모 수집
+    collect_demonstrations(env, datasets, TASK_NAME, NUM_DEMO, SEED)
 
 
 if __name__ == "__main__":
