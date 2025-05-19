@@ -481,7 +481,7 @@ class MultiObjEnv(SimpleEnv):
             if 'mug' in obj_names[i]:
                 p_mug_list.append(self.env.get_p_body(obj_names[i]))
         p_plate = self.env.get_p_body('body_obj_plate_11')
-        return p_mug_list, p_plate
+        return np.array(p_mug_list).reshape(-1), p_plate
 
     def check_success(self):
         '''
