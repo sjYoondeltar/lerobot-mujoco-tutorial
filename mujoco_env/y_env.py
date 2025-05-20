@@ -90,17 +90,26 @@ class SimpleEnv:
             # Easy mode: Fixed plate position and narrow mug position range
             fixed_plate_pos = np.array([0.35, -0.2, 0.82])  # Fixed plate position
             
-            # Mug position with narrow range
-            mug_x = np.random.uniform(0.20, 0.35)  # Narrow x range
-            mug_y = np.random.uniform(0.0, 0.2)   # Narrow y range
-            mug_pos = np.array([mug_x, mug_y, 0.82])
+            # Mug 이름만 추출
+            mug_names = [obj_name for obj_name in obj_names if 'mug' in obj_name]
+            n_mugs = len(mug_names)
             
-            # Set positions based on object type
+            # 여러 개의 mug 위치 샘플링 (충돌 없이)
+            mug_xyzs = sample_xyzs(
+                n_mugs,
+                x_range=[0.20, 0.35],
+                y_range=[0.0, 0.2],
+                z_range=[0.82, 0.82],
+                min_dist=0.12,  # 필요에 따라 조정
+                xy_margin=0.0
+            )
+            mug_idx = 0
             for obj_name in obj_names:
                 if 'plate' in obj_name:
                     self.env.set_p_base_body(body_name=obj_name, p=fixed_plate_pos)
                 elif 'mug' in obj_name:
-                    self.env.set_p_base_body(body_name=obj_name, p=mug_pos)
+                    self.env.set_p_base_body(body_name=obj_name, p=mug_xyzs[mug_idx])
+                    mug_idx += 1
                 self.env.set_R_base_body(body_name=obj_name, R=np.eye(3,3))
                 
         else:  # complex mode
@@ -361,3 +370,129 @@ class SimpleEnv:
         p, R = self.env.get_pR_body(body_name='tcp_link')
         rpy = r2rpy(R)
         return np.concatenate([p, rpy],dtype=np.float32)
+    
+class MultiObjEnv(SimpleEnv):
+    
+    def reset(self, seed = None):
+        '''
+        Reset the environment
+        Move the robot to a initial position, set the object positions based on the seed
+        '''
+        if seed != None: np.random.seed(seed=0) 
+        q_init = np.deg2rad([0,0,0,0,0,0])
+        q_zero,ik_err_stack,ik_info = solve_ik(
+            env = self.env,
+            joint_names_for_ik = self.joint_names,
+            body_name_trgt     = 'tcp_link',
+            q_init       = q_init, # ik from zero pose
+            p_trgt       = np.array([0.3,0.0,1.0]),
+            R_trgt       = rpy2r(np.deg2rad([90,-0.,90 ])),
+        )
+        self.env.forward(q=q_zero,joint_names=self.joint_names,increase_tick=False)
+
+        # Set object positions
+        obj_names = self.env.get_body_names(prefix='body_obj_')
+        
+        if self.mode == 'easy':
+            # Easy mode: Fixed plate position and narrow mug position range
+            fixed_plate_pos = np.array([0.35, -0.2, 0.82])  # Fixed plate position
+            
+            # Mug 이름만 추출
+            mug_names = [obj_name for obj_name in obj_names if 'mug' in obj_name]
+            n_mugs = len(mug_names)
+            
+            # 여러 개의 mug 위치 샘플링 (충돌 없이)
+            mug_xyzs = sample_xyzs(
+                n_mugs,
+                x_range=[0.20, 0.35],
+                y_range=[0.0, 0.2],
+                z_range=[0.82, 0.82],
+                min_dist=0.12,  # 필요에 따라 조정
+                xy_margin=0.0
+            )
+            mug_idx = 0
+            for obj_name in obj_names:
+                if 'plate' in obj_name:
+                    self.env.set_p_base_body(body_name=obj_name, p=fixed_plate_pos)
+                elif 'mug' in obj_name:
+                    self.env.set_p_base_body(body_name=obj_name, p=mug_xyzs[mug_idx])
+                    mug_idx += 1
+                self.env.set_R_base_body(body_name=obj_name, R=np.eye(3,3))
+                
+        else:  # complex mode
+            # Complex mode: Original random placement
+            n_obj = len(obj_names)
+            obj_xyzs = sample_xyzs(
+                n_obj,
+                x_range   = [+0.24,+0.4],
+                y_range   = [-0.2,+0.2],
+                z_range   = [0.82,0.82],
+                min_dist  = 0.2,
+                xy_margin = 0.0
+            )
+            for obj_idx in range(n_obj):
+                self.env.set_p_base_body(body_name=obj_names[obj_idx],p=obj_xyzs[obj_idx,:])
+                self.env.set_R_base_body(body_name=obj_names[obj_idx],R=np.eye(3,3))
+        
+        self.env.forward(increase_tick=False)
+
+        # Set the initial pose of the robot
+        self.last_q = copy.deepcopy(q_zero)
+        self.q = np.concatenate([q_zero, np.array([0.0]*4)])
+        self.p0, self.R0 = self.env.get_pR_body(body_name='tcp_link')
+        mug_init_pose, plate_init_pose = self.get_obj_pose()
+        self.obj_init_pose = np.concatenate([np.array(mug_init_pose).reshape(-1), np.array(plate_init_pose).reshape(-1)],dtype=np.float32)
+        for _ in range(100):
+            self.step_env()
+        print("DONE INITIALIZATION")
+        self.gripper_state = False
+        self.past_chars = []
+    
+    def set_obj_pose(self, p_mug_list, p_plate):
+        '''
+        Set the object poses
+        args:
+            p_mug_list: list of np.array, position of the mugs
+            p_plate: np.array, position of the plate
+        '''
+        
+        # Set object positions
+        obj_names = self.env.get_body_names(prefix='body_obj_')
+            
+        # Set positions based on object type
+        for i, obj_name in enumerate(obj_names):
+            if 'mug' in obj_name:
+                self.env.set_p_base_body(body_name=obj_name, p=p_mug_list[i])
+                self.env.set_R_base_body(body_name=obj_name, R=np.eye(3,3))
+                
+        self.env.set_p_base_body(body_name='body_obj_plate_11',p=p_plate)
+        self.env.set_R_base_body(body_name='body_obj_plate_11',R=np.eye(3,3))
+        self.step_env()
+
+    def get_obj_pose(self):
+        '''
+        returns: 
+            p_mug: np.array, position of the mug
+            p_plate: np.array, position of the plate
+        '''
+        obj_names = self.env.get_body_names(prefix='body_obj_')
+        p_mug_list = []
+        for i in range(len(obj_names)):
+            if 'mug' in obj_names[i]:
+                p_mug_list.append(self.env.get_p_body(obj_names[i]))
+        p_plate = self.env.get_p_body('body_obj_plate_11')
+        return p_mug_list, p_plate
+
+    def check_success(self):
+        '''
+        ['body_obj_mug_5', 'body_obj_plate_11']
+        Check if the mug is placed on the plate
+        + Gripper should be open and move upward above 0.9
+        '''
+        p_mug_list, p_plate = self.get_obj_pose()
+        for i in range(len(p_mug_list)):
+            if np.linalg.norm(p_mug_list[i][:2] - p_plate[:2]) < 0.1 and np.linalg.norm(p_mug_list[i][2] - p_plate[2]) < 0.6 and self.env.get_qpos_joint('rh_r1') < 0.1:
+                p = self.env.get_p_body('tcp_link')[2]
+                if p > 0.9:
+                    return True
+        return False
