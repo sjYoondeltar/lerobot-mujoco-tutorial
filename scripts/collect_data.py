@@ -291,14 +291,31 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
 
 
 def main():
-    # Configuration
-    SEED = None  # Set to None to randomize object positions
-    REPO_NAME = 'omy_pnp'
-    NUM_DEMO = 25  # Number of demonstrations to collect
-    ROOT = "./demo_data_4"  # The root directory to save the demonstrations
-    TASK_NAME = 'Put red mug cup on the plate'
-    # ENV_TYPE = 'simple'
-    ENV_TYPE = 'multi_object'
+    # 명령줄 인자 파싱
+    import argparse
+    parser = argparse.ArgumentParser(description='Collect demonstration data for robot tasks.')
+    parser.add_argument('--seed', type=int, default=None, 
+                        help='Random seed for environment. None to randomize object positions.')
+    parser.add_argument('--repo_name', type=str, default='omy_pnp',
+                        help='Name of the repository')
+    parser.add_argument('--num_demo', type=int, default=25,
+                        help='Number of demonstrations to collect')
+    parser.add_argument('--root', type=str, default='./demo_data_4',
+                        help='Root directory to save the demonstrations')
+    parser.add_argument('--task_name', type=str, default='Put green mug cup on the plate',
+                        help='Name of the task')
+    parser.add_argument('--env_type', type=str, choices=['simple', 'multi_object'], default='multi_object',
+                        help='Type of environment to use')
+    args = parser.parse_args()
+
+    # 설정값 적용
+    SEED = args.seed
+    REPO_NAME = args.repo_name
+    NUM_DEMO = args.num_demo
+    ROOT = args.root
+    TASK_NAME = args.task_name
+    ENV_TYPE = args.env_type
+    
     # 항상 액션 타입별로 별도의 데이터셋 생성
     action_types = ['joint', 'eef_pose', 'delta_q']
     datasets = {}
