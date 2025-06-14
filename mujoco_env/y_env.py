@@ -25,24 +25,36 @@ except ImportError:
 
 class SimpleEnv:
     def __init__(self, 
-                 xml_path,
+                 xml_path=None,
                 action_type='eef_pose', 
                 state_type='joint_angle',
                 seed = None,
-                mode='easy'):
+                mode='easy',
+                object_type='cube'):
         """
         args:
-            xml_path: str, path to the xml file
+            xml_path: str, path to the xml file (optional, will be auto-determined by object_type if None)
             action_type: str, type of action space, 'eef_pose','delta_joint_angle' or 'joint_angle'
             state_type: str, type of state space, 'joint_angle' or 'ee_pose'
             seed: int, seed for random number generator
             mode: str, 'easy' or 'complex' - determines object placement strategy
+            object_type: str, 'cube' or 'mug' - determines which objects to use
         """
+        # Determine xml_path based on object_type if not provided
+        if xml_path is None:
+            if object_type == 'cube':
+                xml_path = 'asset/example_scene_y.xml'
+            elif object_type == 'mug':
+                xml_path = 'asset/example_scene_y_mug.xml'
+            else:
+                raise ValueError(f"Unsupported object_type: {object_type}. Use 'cube' or 'mug'.")
+        
         # Load the xml file
         self.env = MuJoCoParserClass(name='Tabletop',rel_xml_path=xml_path)
         self.action_type = action_type
         self.state_type = state_type
         self.mode = mode
+        self.object_type = object_type
 
         self.joint_names = ['joint1',
                     'joint2',
@@ -87,29 +99,33 @@ class SimpleEnv:
         obj_names = self.env.get_body_names(prefix='body_obj_')
         
         if self.mode == 'easy':
-            # Easy mode: Fixed plate position and narrow mug position range
+            # Easy mode: Fixed plate position and narrow object position range
             fixed_plate_pos = np.array([0.35, -0.2, 0.82])  # Fixed plate position
             
-            # Mug 이름만 추출
-            mug_names = [obj_name for obj_name in obj_names if 'mug' in obj_name]
-            n_mugs = len(mug_names)
+            # Object 이름 추출 (cube 또는 mug)
+            if self.object_type == 'cube':
+                target_objects = [obj_name for obj_name in obj_names if 'cube' in obj_name]
+            else:  # mug
+                target_objects = [obj_name for obj_name in obj_names if 'mug' in obj_name]
             
-            # 여러 개의 mug 위치 샘플링 (충돌 없이)
-            mug_xyzs = sample_xyzs(
-                n_mugs,
+            n_objects = len(target_objects)
+            
+            # 여러 개의 object 위치 샘플링 (충돌 없이)
+            object_xyzs = sample_xyzs(
+                n_objects,
                 x_range=[0.20, 0.35],
                 y_range=[0.0, 0.2],
                 z_range=[0.82, 0.82],
                 min_dist=0.12,  # 필요에 따라 조정
                 xy_margin=0.0
             )
-            mug_idx = 0
+            object_idx = 0
             for obj_name in obj_names:
                 if 'plate' in obj_name:
                     self.env.set_p_base_body(body_name=obj_name, p=fixed_plate_pos)
-                elif 'mug' in obj_name:
-                    self.env.set_p_base_body(body_name=obj_name, p=mug_xyzs[mug_idx])
-                    mug_idx += 1
+                elif self.object_type in obj_name:  # cube 또는 mug
+                    self.env.set_p_base_body(body_name=obj_name, p=object_xyzs[object_idx])
+                    object_idx += 1
                 self.env.set_R_base_body(body_name=obj_name, R=np.eye(3,3))
                 
         else:  # complex mode
@@ -133,8 +149,8 @@ class SimpleEnv:
         self.last_q = copy.deepcopy(q_zero)
         self.q = np.concatenate([q_zero, np.array([0.0]*4)])
         self.p0, self.R0 = self.env.get_pR_body(body_name='tcp_link')
-        mug_init_pose, plate_init_pose = self.get_obj_pose()
-        self.obj_init_pose = np.concatenate([mug_init_pose, plate_init_pose],dtype=np.float32)
+        object_init_pose, plate_init_pose = self.get_obj_pose()
+        self.obj_init_pose = np.concatenate([object_init_pose, plate_init_pose],dtype=np.float32)
         for _ in range(100):
             self.step_env()
         print("DONE INITIALIZATION")
@@ -277,7 +293,7 @@ class SimpleEnv:
 
 
         '''
-        amplifier = 4.0  # Define the amplification factor
+        amplifier = 2.0  # Define the amplification factor
         dpos = np.zeros(3)
         drot = np.eye(3)
         if self.env.is_key_pressed_repeat(key=glfw.KEY_S):
@@ -327,13 +343,17 @@ class SimpleEnv:
 
     def check_success(self):
         '''
-        ['body_obj_mug_5', 'body_obj_plate_11']
-        Check if the mug is placed on the plate
+        Check if the object is placed on the plate
         + Gripper should be open and move upward above 0.9
         '''
-        p_mug = self.env.get_p_body('body_obj_mug_5')
+        # Get object position based on object_type
+        if self.object_type == 'cube':
+            p_object = self.env.get_p_body('body_obj_cube_5')
+        else:  # mug
+            p_object = self.env.get_p_body('body_obj_mug_5')
+        
         p_plate = self.env.get_p_body('body_obj_plate_11')
-        if np.linalg.norm(p_mug[:2] - p_plate[:2]) < 0.1 and np.linalg.norm(p_mug[2] - p_plate[2]) < 0.6 and self.env.get_qpos_joint('rh_r1') < 0.1:
+        if np.linalg.norm(p_object[:2] - p_plate[:2]) < 0.1 and np.linalg.norm(p_object[2] - p_plate[2]) < 0.6 and self.env.get_qpos_joint('rh_r1') < 0.1:
             p = self.env.get_p_body('tcp_link')[2]
             if p > 0.9:
                 return True
@@ -342,22 +362,33 @@ class SimpleEnv:
     def get_obj_pose(self):
         '''
         returns: 
-            p_mug: np.array, position of the mug
+            p_object: np.array, position of the object (cube or mug)
             p_plate: np.array, position of the plate
         '''
-        p_mug = self.env.get_p_body('body_obj_mug_5')
+        # Get object position based on object_type
+        if self.object_type == 'cube':
+            p_object = self.env.get_p_body('body_obj_cube_5')
+        else:  # mug
+            p_object = self.env.get_p_body('body_obj_mug_5')
+        
         p_plate = self.env.get_p_body('body_obj_plate_11')
-        return p_mug, p_plate
+        return p_object, p_plate
     
-    def set_obj_pose(self, p_mug, p_plate):
+    def set_obj_pose(self, p_object, p_plate):
         '''
         Set the object poses
         args:
-            p_mug: np.array, position of the mug
+            p_object: np.array, position of the object (cube or mug)
             p_plate: np.array, position of the plate
         '''
-        self.env.set_p_base_body(body_name='body_obj_mug_5',p=p_mug)
-        self.env.set_R_base_body(body_name='body_obj_mug_5',R=np.eye(3,3))
+        # Set object position based on object_type
+        if self.object_type == 'cube':
+            self.env.set_p_base_body(body_name='body_obj_cube_5',p=p_object)
+            self.env.set_R_base_body(body_name='body_obj_cube_5',R=np.eye(3,3))
+        else:  # mug
+            self.env.set_p_base_body(body_name='body_obj_mug_5',p=p_object)
+            self.env.set_R_base_body(body_name='body_obj_mug_5',R=np.eye(3,3))
+        
         self.env.set_p_base_body(body_name='body_obj_plate_11',p=p_plate)
         self.env.set_R_base_body(body_name='body_obj_plate_11',R=np.eye(3,3))
         self.step_env()
@@ -372,6 +403,33 @@ class SimpleEnv:
         return np.concatenate([p, rpy],dtype=np.float32)
     
 class MultiObjEnv(SimpleEnv):
+    def __init__(self, 
+                 xml_path=None,
+                action_type='eef_pose', 
+                state_type='joint_angle',
+                seed = None,
+                mode='easy',
+                object_type='cube'):
+        """
+        args:
+            xml_path: str, path to the xml file (optional, will be auto-determined by object_type if None)
+            action_type: str, type of action space, 'eef_pose','delta_joint_angle' or 'joint_angle'
+            state_type: str, type of state space, 'joint_angle' or 'ee_pose'
+            seed: int, seed for random number generator
+            mode: str, 'easy' or 'complex' - determines object placement strategy
+            object_type: str, 'cube' or 'mug' - determines which objects to use
+        """
+        # Determine xml_path based on object_type if not provided
+        if xml_path is None:
+            if object_type == 'cube':
+                xml_path = 'asset/example_scene_y_multi.xml'
+            elif object_type == 'mug':
+                xml_path = 'asset/example_scene_y_multi_mug.xml'
+            else:
+                raise ValueError(f"Unsupported object_type: {object_type}. Use 'cube' or 'mug'.")
+        
+        # Call parent constructor
+        super().__init__(xml_path, action_type, state_type, seed, mode, object_type)
     
     def reset(self, seed = None):
         '''
@@ -394,29 +452,33 @@ class MultiObjEnv(SimpleEnv):
         obj_names = self.env.get_body_names(prefix='body_obj_')
         
         if self.mode == 'easy':
-            # Easy mode: Fixed plate position and narrow mug position range
+            # Easy mode: Fixed plate position and narrow object position range
             fixed_plate_pos = np.array([0.35, -0.2, 0.82])  # Fixed plate position
             
-            # Mug 이름만 추출
-            mug_names = [obj_name for obj_name in obj_names if 'mug' in obj_name]
-            n_mugs = len(mug_names)
+            # Object 이름 추출 (cube 또는 mug)
+            if self.object_type == 'cube':
+                target_objects = [obj_name for obj_name in obj_names if 'cube' in obj_name]
+            else:  # mug
+                target_objects = [obj_name for obj_name in obj_names if 'mug' in obj_name]
             
-            # 여러 개의 mug 위치 샘플링 (충돌 없이)
-            mug_xyzs = sample_xyzs(
-                n_mugs,
+            n_objects = len(target_objects)
+            
+            # 여러 개의 object 위치 샘플링 (충돌 없이)
+            object_xyzs = sample_xyzs(
+                n_objects,
                 x_range=[0.20, 0.35],
                 y_range=[0.0, 0.2],
                 z_range=[0.82, 0.82],
                 min_dist=0.12,  # 필요에 따라 조정
                 xy_margin=0.0
             )
-            mug_idx = 0
+            object_idx = 0
             for obj_name in obj_names:
                 if 'plate' in obj_name:
                     self.env.set_p_base_body(body_name=obj_name, p=fixed_plate_pos)
-                elif 'mug' in obj_name:
-                    self.env.set_p_base_body(body_name=obj_name, p=mug_xyzs[mug_idx])
-                    mug_idx += 1
+                elif self.object_type in obj_name:  # cube 또는 mug
+                    self.env.set_p_base_body(body_name=obj_name, p=object_xyzs[object_idx])
+                    object_idx += 1
                 self.env.set_R_base_body(body_name=obj_name, R=np.eye(3,3))
                 
         else:  # complex mode
@@ -440,19 +502,19 @@ class MultiObjEnv(SimpleEnv):
         self.last_q = copy.deepcopy(q_zero)
         self.q = np.concatenate([q_zero, np.array([0.0]*4)])
         self.p0, self.R0 = self.env.get_pR_body(body_name='tcp_link')
-        mug_init_pose, plate_init_pose = self.get_obj_pose()
-        self.obj_init_pose = np.concatenate([np.array(mug_init_pose).reshape(-1), np.array(plate_init_pose).reshape(-1)],dtype=np.float32)
+        object_init_pose, plate_init_pose = self.get_obj_pose()
+        self.obj_init_pose = np.concatenate([np.array(object_init_pose).reshape(-1), np.array(plate_init_pose).reshape(-1)],dtype=np.float32)
         for _ in range(100):
             self.step_env()
         print("DONE INITIALIZATION")
         self.gripper_state = False
         self.past_chars = []
     
-    def set_obj_pose(self, p_mug_list, p_plate):
+    def set_obj_pose(self, p_object_list, p_plate):
         '''
         Set the object poses
         args:
-            p_mug_list: list of np.array, position of the mugs
+            p_object_list: list of np.array, position of the objects
             p_plate: np.array, position of the plate
         '''
         
@@ -460,10 +522,12 @@ class MultiObjEnv(SimpleEnv):
         obj_names = self.env.get_body_names(prefix='body_obj_')
             
         # Set positions based on object type
-        for i, obj_name in enumerate(obj_names):
-            if 'mug' in obj_name:
-                self.env.set_p_base_body(body_name=obj_name, p=p_mug_list[i])
+        obj_idx = 0
+        for obj_name in obj_names:
+            if self.object_type in obj_name:  # cube 또는 mug
+                self.env.set_p_base_body(body_name=obj_name, p=p_object_list[obj_idx])
                 self.env.set_R_base_body(body_name=obj_name, R=np.eye(3,3))
+                obj_idx += 1
                 
         self.env.set_p_base_body(body_name='body_obj_plate_11',p=p_plate)
         self.env.set_R_base_body(body_name='body_obj_plate_11',R=np.eye(3,3))
@@ -472,26 +536,25 @@ class MultiObjEnv(SimpleEnv):
     def get_obj_pose(self):
         '''
         returns: 
-            p_mug: np.array, position of the mug
+            p_object: np.array, position of the object (cube or mug)
             p_plate: np.array, position of the plate
         '''
         obj_names = self.env.get_body_names(prefix='body_obj_')
-        p_mug_list = []
-        for i in range(len(obj_names)):
-            if 'mug' in obj_names[i]:
-                p_mug_list.append(self.env.get_p_body(obj_names[i]))
+        p_object_list = []
+        for obj_name in obj_names:
+            if self.object_type in obj_name:  # cube 또는 mug
+                p_object_list.append(self.env.get_p_body(obj_name))
         p_plate = self.env.get_p_body('body_obj_plate_11')
-        return p_mug_list, p_plate
+        return p_object_list, p_plate
 
     def check_success(self):
         '''
-        ['body_obj_mug_5', 'body_obj_plate_11']
-        Check if the mug is placed on the plate
+        Check if the object is placed on the plate
         + Gripper should be open and move upward above 0.9
         '''
-        p_mug_list, p_plate = self.get_obj_pose()
-        for i in range(len(p_mug_list)):
-            if np.linalg.norm(p_mug_list[i][:2] - p_plate[:2]) < 0.1 and np.linalg.norm(p_mug_list[i][2] - p_plate[2]) < 0.6 and self.env.get_qpos_joint('rh_r1') < 0.1:
+        p_object_list, p_plate = self.get_obj_pose()
+        for i in range(len(p_object_list)):
+            if np.linalg.norm(p_object_list[i][:2] - p_plate[:2]) < 0.1 and np.linalg.norm(p_object_list[i][2] - p_plate[2]) < 0.6 and self.env.get_qpos_joint('rh_r1') < 0.1:
                 p = self.env.get_p_body('tcp_link')[2]
                 if p > 0.9:
                     return True

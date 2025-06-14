@@ -1,0 +1,94 @@
+# Enhanced Cube Collision Mesh - 0.05m x 0.05m x 0.05m
+# Original 8 corner vertices
+v -0.025 -0.025 -0.025
+v  0.025 -0.025 -0.025
+v  0.025  0.025 -0.025
+v -0.025  0.025 -0.025
+v -0.025 -0.025  0.025
+v  0.025 -0.025  0.025
+v  0.025  0.025  0.025
+v -0.025  0.025  0.025
+
+# Additional vertices for enhanced collision detection
+# Face centers
+v  0.000  0.000 -0.025
+v  0.000  0.000  0.025
+v  0.000 -0.025  0.000
+v  0.000  0.025  0.000
+v -0.025  0.000  0.000
+v  0.025  0.000  0.000
+
+# Edge centers on faces
+v -0.025  0.000 -0.025
+v  0.025  0.000 -0.025
+v -0.025  0.000  0.025
+v  0.025  0.000  0.025
+v -0.025  0.025  0.000
+v  0.025  0.025  0.000
+v -0.025 -0.025  0.000
+v  0.025 -0.025  0.000
+v  0.000 -0.025  0.025
+v  0.000  0.025  0.025
+v  0.000 -0.025 -0.025
+v  0.000  0.025 -0.025
+
+# Enhanced faces (using more vertices for better collision detection)
+# Bottom face (z = -0.025) - subdivided
+f 1 25 9
+f 25 2 9
+f 2 16 9
+f 16 3 9
+f 3 26 9
+f 26 4 9
+f 4 15 9
+f 15 1 9
+
+# Top face (z = 0.025) - subdivided
+f 5 17 10
+f 17 6 10
+f 6 18 10
+f 18 7 10
+f 7 24 10
+f 24 8 10
+f 8 17 10
+f 17 5 10
+
+# Front face (y = -0.025) - subdivided
+f 1 21 11
+f 21 5 11
+f 5 23 11
+f 23 6 11
+f 6 22 11
+f 22 2 11
+f 2 21 11
+f 21 1 11
+
+# Back face (y = 0.025) - subdivided
+f 4 26 12
+f 26 3 12
+f 3 20 12
+f 20 7 12
+f 7 24 12
+f 24 8 12
+f 8 19 12
+f 19 4 12
+
+# Left face (x = -0.025) - subdivided
+f 1 15 13
+f 15 4 13
+f 4 19 13
+f 19 8 13
+f 8 17 13
+f 17 5 13
+f 5 21 13
+f 21 1 13
+
+# Right face (x = 0.025) - subdivided
+f 2 22 14
+f 22 6 14
+f 6 18 14
+f 18 7 14
+f 7 20 14
+f 20 3 14
+f 3 16 14
+f 16 2 14 

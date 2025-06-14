@@ -29,9 +29,9 @@
    
 
     <include file="./robotis_omy/omy.xml" />
-    <include file="./objaverse/cube_5/model_new.xml"/>
+    <include file="./objaverse/mug_5/model_new.xml"/>
     <include file="./objaverse/plate_11/model_new.xml"/>
-    <include file="./objaverse/cube_6/model_new.xml"/>
+    <include file="./objaverse/mug_6/model_new.xml"/>
 
 
-</mujoco>
+</mujoco> 
