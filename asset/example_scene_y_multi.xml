@@ -4,7 +4,11 @@
     
     <!-- Default options -->
     <!-- <compiler angle="radian" assetdir="./tabletop/mesh" autolimits="true" /> -->
-    <option integrator="RK4" noslip_iterations="20" />
+    <option integrator="RK4" noslip_iterations="20" collision="predefined" cone="elliptic" />
+    
+    <!-- Contact parameters for better gripper-object interaction -->
+    <size nconmax="500" njmax="2000" />
+    <option timestep="0.002" />
     <default>
         <joint armature="0.1" damping="0.1" />
         <default class="visual_only">
