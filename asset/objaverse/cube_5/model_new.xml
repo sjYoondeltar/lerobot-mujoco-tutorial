@@ -1,6 +1,7 @@
 <mujoco model="cube_5">
   <asset>
-    <mesh file="visual/cube_enhanced.obj" name="cube_5_enhanced_vis" />
+    <mesh file="visual/cube_enhanced.stl" name="cube_5_enhanced_vis" />
+    <mesh file="collision/cube_enhanced_collision.stl" name="cube_5_enhanced_coll" />
     <material name="m_cube_5" rgba="0.8 0.2 0.2 1.0" specular="0.5" shininess="0.3"/>
   </asset>
   <worldbody>
@@ -10,10 +11,10 @@
         <!-- Visual geometry (visible but no collision) -->
         <geom type="mesh" mesh="cube_5_enhanced_vis" material="m_cube_5" 
               conaffinity="0" contype="0" group="2" />
-        <!-- Collision geometry (invisible box for stable contact) -->
-        <geom type="box" size="0.025 0.025 0.025" 
-              solimp="0.9 0.95 0.001" solref="0.02 1" 
-              density="500" friction="1.0 0.5 0.01" 
+        <!-- Anti-slip high-resolution collision mesh -->
+        <geom type="mesh" mesh="cube_5_enhanced_coll" 
+              solimp="0.95 0.99 0.001" solref="0.01 1" 
+              density="500" friction="2.0 1.5 0.05" 
               group="3" rgba="0 0 0 0" />
         <!-- Inertial properties for realistic dynamics -->
         <inertial pos="0 0 0" mass="0.15" diaginertia="0.0002 0.0002 0.0002" />
