@@ -302,9 +302,9 @@ def main():
                         help='Number of demonstrations to collect')
     parser.add_argument('--root', type=str, default='./demo_data_red',
                         help='Root directory to save the demonstrations')
-    parser.add_argument('--task_name', type=str, default='Put red mug cup on the plate',
+    parser.add_argument('--task_name', type=str, default='Put green mug cup on the plate',
                         help='Name of the task')
-    parser.add_argument('--env_type', type=str, choices=['simple', 'multi_object'], default='simple',
+    parser.add_argument('--env_type', type=str, choices=['simple', 'multi_object'], default='multi_object',
                         help='Type of environment to use')
     args = parser.parse_args()
 
