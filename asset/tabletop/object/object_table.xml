@@ -1,7 +1,7 @@
 <mujocoinclude>
 
     <asset>
-        <texture type="2d" name="light_wood" file="../mesh/light_wood_v3.png" />
+        <texture type="2d" name="light_wood" file="tabletop/mesh/light_wood_v3.png" />
         <material name="wood_table_mat" texture="light_wood" specular="0.5" shininess="0.5"
             rgba="0.5 0.5 0.5 1" />
     </asset>

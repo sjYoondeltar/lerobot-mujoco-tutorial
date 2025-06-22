@@ -248,7 +248,6 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
                     "observation.wrist_image": wrist_image,
                     "observation.state": ee_pose,
                     "obj_init": env.obj_init_pose,
-                    "task": task_name,
                 }
                 
                 if is_multi_dataset:
@@ -256,17 +255,17 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
                     if 'joint' in datasets:
                         joint_frame = common_frame_data.copy()
                         joint_frame["action"] = joint_q
-                        datasets['joint'].add_frame(joint_frame)
+                        datasets['joint'].add_frame(joint_frame, task=task_name)
                     
                     if 'eef_pose' in datasets:
                         ee_pose_frame = common_frame_data.copy()
                         ee_pose_frame["action"] = eef_pose_with_gripper
-                        datasets['eef_pose'].add_frame(ee_pose_frame)
+                        datasets['eef_pose'].add_frame(ee_pose_frame, task=task_name)
                     
                     if 'delta_q' in datasets:
                         delta_q_frame = common_frame_data.copy()
                         delta_q_frame["action"] = delta_q
-                        datasets['delta_q'].add_frame(delta_q_frame)
+                        datasets['delta_q'].add_frame(delta_q_frame, task=task_name)
                 else:
                     # 모든 액션 타입을 하나의 데이터셋에 추가
                     datasets.add_frame({
@@ -274,7 +273,7 @@ def collect_demonstrations(env, datasets, task_name, num_demos, seed):
                             "action.joint": joint_q,
                             "action.eef_pose": eef_pose_with_gripper,  # x, y, z, roll, pitch, yaw, gripper
                             "action.delta_q": delta_q,  # delta joint angles with gripper
-                        }
+                        }, task=task_name
                     )
             
             env.render()
@@ -304,7 +303,7 @@ def main():
                         help='Root directory to save the demonstrations')
     parser.add_argument('--task_name', type=str, default='Put green mug cup on the plate',
                         help='Name of the task')
-    parser.add_argument('--env_type', type=str, choices=['simple', 'multi_object'], default='multi_object',
+    parser.add_argument('--env_type', type=str, choices=['simple', 'multi_object'], default='simple',
                         help='Type of environment to use')
     args = parser.parse_args()
 
