@@ -297,13 +297,13 @@ def main():
                         help='Random seed for environment. None to randomize object positions.')
     parser.add_argument('--repo_name', type=str, default='omy_pnp',
                         help='Name of the repository')
-    parser.add_argument('--num_demo', type=int, default=25,
+    parser.add_argument('--num_demo', type=int, default=10,
                         help='Number of demonstrations to collect')
-    parser.add_argument('--root', type=str, default='./demo_data_red',
+    parser.add_argument('--root', type=str, default='./demo_data_cube',
                         help='Root directory to save the demonstrations')
-    parser.add_argument('--task_name', type=str, default='Put green mug cup on the plate',
+    parser.add_argument('--task_name', type=str, default='Put red cube on the plate',
                         help='Name of the task')
-    parser.add_argument('--env_type', type=str, choices=['simple', 'multi_object'], default='simple',
+    parser.add_argument('--env_type', type=str, choices=['simple', 'multi_object'], default='multi_object',
                         help='Type of environment to use')
     args = parser.parse_args()
 
@@ -327,6 +327,8 @@ def main():
         env = SimpleEnv('./asset/example_scene_y.xml', seed=SEED, state_type='joint_angle')
     elif ENV_TYPE == 'multi_object':
         env = MultiObjEnv('./asset/example_scene_y_multi.xml', seed=SEED, state_type='joint_angle')
+    else:
+        raise ValueError(f"Invalid environment type: {ENV_TYPE}")
 
     for action_type in action_types:
         print(f"\nCreating dataset for action type: {action_type}")

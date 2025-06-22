@@ -138,9 +138,10 @@ def sequential_visualization(env, datasets, action_types):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Visualize robot demonstration data')
-    parser.add_argument('--root', type=str, default='./demo_data_3', help='Path to demonstration data')
+    parser.add_argument('--root', type=str, default='./demo_data_cube', help='Path to demonstration data')
     parser.add_argument('--repo', type=str, default='omy_pnp', help='Repository name')
-    parser.add_argument('--xml_path', type=str, default='./asset/example_scene_y.xml', help='Path to XML file')
+    parser.add_argument('--env_type', type=str, choices=['simple', 'multi_object'], default='multi_object',
+                        help='Type of environment to use')
     parser.add_argument('--action_type', type=str, choices=['joint', 'eef_pose', 'delta_q'], 
                         default='joint', help='Action type to visualize')
     args = parser.parse_args()
@@ -166,14 +167,21 @@ def main():
     
     # Import mujoco_env components here to avoid immediate import
     from mujoco_env.y_env import SimpleEnv
+
+    if args.env_type == 'simple':
+        xml_path = './asset/example_scene_y.xml'
+    elif args.env_type == 'multi_object':
+        xml_path = './asset/example_scene_y_multi.xml'
+    else:
+        raise ValueError(f"Invalid environment type: {args.env_type}")
     
     # Initialize the environment
     if args.action_type == 'joint':
-        env = SimpleEnv(args.xml_path, seed=0, state_type='joint_angle', action_type='joint_angle')
+        env = SimpleEnv(xml_path, seed=0, state_type='joint_angle', action_type='joint_angle')
     elif args.action_type == 'eef_pose':
-        env = SimpleEnv(args.xml_path, seed=0, state_type='joint_angle', action_type='eef_pose')
+        env = SimpleEnv(xml_path, seed=0, state_type='joint_angle', action_type='eef_pose')
     elif args.action_type == 'delta_q':
-        env = SimpleEnv(args.xml_path, seed=0, state_type='joint_angle', action_type='delta_joint_angle')
+        env = SimpleEnv(xml_path, seed=0, state_type='joint_angle', action_type='delta_joint_angle')
     else:
         raise ValueError(f"Invalid action type: {args.action_type}")
     
