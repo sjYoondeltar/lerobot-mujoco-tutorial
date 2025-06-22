@@ -1,7 +1,7 @@
 <mujoco model="cube_6">
   <asset>
-    <mesh file="visual/cube_enhanced.stl" name="cube_6_enhanced_vis" />
-    <mesh file="collision/cube_enhanced_collision.stl" name="cube_6_enhanced_coll" />
+    <mesh file="objaverse/cube_6/visual/cube_enhanced.stl" name="cube_6_enhanced_vis" />
+    <mesh file="objaverse/cube_6/collision/cube_enhanced_collision.stl" name="cube_6_enhanced_coll" />
     <material name="m_cube_6" rgba="0.2 0.8 0.2 1.0" specular="0.5" shininess="0.3"/>
   </asset>
   <worldbody>
