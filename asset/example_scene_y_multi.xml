@@ -1,10 +1,10 @@
 <mujoco model="Scanned Objects">
-    <!-- Memory? -->
-    <size memory="500M"/>
-    
     <!-- Default options -->
     <!-- <compiler angle="radian" assetdir="./tabletop/mesh" autolimits="true" /> -->
-    <option integrator="RK4" noslip_iterations="20" />
+    <option integrator="RK4" noslip_iterations="30" timestep="0.001" />
+    
+    <!-- Enhanced contact parameters for anti-slip gripper interaction -->
+    <size nconmax="1000" njmax="3000" />
     <default>
         <joint armature="0.1" damping="0.1" />
         <default class="visual_only">
