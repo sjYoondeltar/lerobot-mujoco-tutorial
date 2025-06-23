@@ -694,10 +694,16 @@ def main():
     parser.add_argument(
         "--control_hz", 
         type=int, 
-        default=20, 
+        default=10, 
         help="Control frequency in Hz."
     )
-    
+    parser.add_argument(
+        "--env_type", 
+        type=str, 
+        default='multi_object', 
+        choices=['simple', 'multi_object'], 
+        help="Type of environment to use ('simple' or 'multi_object')."
+    )
     args = parser.parse_args()
 
     # Determine checkpoint directory
@@ -714,7 +720,7 @@ def main():
 
     # Import mujoco_env components here to avoid potential issues if imports fail early
     try:
-        from mujoco_env.y_env import SimpleEnv
+        from mujoco_env.y_env import SimpleEnv, MultiObjEnv
     except ImportError as e:
         print(f"Error importing SimpleEnv from mujoco_env.y_env: {e}")
         print("Please ensure 'mujoco_env' is installed and accessible.")
@@ -723,12 +729,18 @@ def main():
     # Initialize the environment
     print(f"Initializing environment from: {args.xml_path}")
     try:
-        if args.action_type == 'joint':
+        if args.action_type == 'joint' and args.env_type == 'simple':
             pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='joint_angle')
-        elif args.action_type == 'eef_pose':
+        elif args.action_type == 'eef_pose' and args.env_type == 'simple':
             pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='eef_pose')
-        elif args.action_type == 'delta_q':
+        elif args.action_type == 'delta_q' and args.env_type == 'simple':
             pnp_env = SimpleEnv(args.xml_path, seed=0, action_type='delta_joint_angle')
+        elif args.action_type == 'joint' and args.env_type == 'multi_object':
+            pnp_env = MultiObjEnv(args.xml_path, seed=0, action_type='joint_angle')
+        elif args.action_type == 'eef_pose' and args.env_type == 'multi_object':
+            pnp_env = MultiObjEnv(args.xml_path, seed=0, action_type='eef_pose')
+        elif args.action_type == 'delta_q' and args.env_type == 'multi_object':
+            pnp_env = MultiObjEnv(args.xml_path, seed=0, action_type='delta_joint_angle')
         else:
             raise ValueError(f"Invalid action type: {args.action_type}")
         print("Environment initialized.")
