@@ -40,7 +40,7 @@ class EpisodeSampler(torch.utils.data.Sampler):
         return len(self.frame_ids)
 
 
-def visualize_dataset(env, dataset, episode_idx=0, action_type=None):
+def visualize_dataset(env, dataset, episode_idx=0, action_type=None, env_type=None):
     """Visualize a specific episode from the dataset using dataloader"""
     print(f"Visualizing action type: {action_type}, episode: {episode_idx}")
     
@@ -61,7 +61,10 @@ def visualize_dataset(env, dataset, episode_idx=0, action_type=None):
         first_frame = next(iter_dataloader)
         # Reset the environment with the object at the initial position
         env.reset()
-        env.set_obj_pose(first_frame['obj_init'][0,:3], first_frame['obj_init'][0,3:])
+        if env_type == 'multi_object':
+            env.set_obj_pose([first_frame['obj_init'][0,:3].numpy(), first_frame['obj_init'][0,3:6].numpy()], first_frame['obj_init'][0,6:].numpy())
+        else:
+            env.set_obj_pose(first_frame['obj_init'][0,:3], first_frame['obj_init'][0,3:])
     except StopIteration:
         print(f"Episode {episode_idx} is empty")
         return True
@@ -78,13 +81,15 @@ def visualize_dataset(env, dataset, episode_idx=0, action_type=None):
         if not env.env.is_viewer_alive():
             return False
             
-        if env.env.loop_every(HZ=20):
+        if env.env.loop_every(HZ=5):
             # If first frame, set object pose
             if step == 0:
-                env.set_obj_pose(data['obj_init'][0,:3], data['obj_init'][0,3:])
+                if env_type == 'multi_object':
+                    env.set_obj_pose([data['obj_init'][0,:3].numpy(), data['obj_init'][0,3:6].numpy()], data['obj_init'][0,6:].numpy())
+                else:
+                    env.set_obj_pose(data['obj_init'][0,:3], data['obj_init'][0,3:])
             
             # Get the action from dataset
-            print(data['action'])
             action = data['action'].numpy()
             obs = env.step(action[0])
             
@@ -112,7 +117,7 @@ def visualize_dataset(env, dataset, episode_idx=0, action_type=None):
     return env.env.is_viewer_alive()
 
 
-def sequential_visualization(env, datasets, action_types):
+def sequential_visualization(env, datasets, action_types, env_type):
     """
     Sequentially visualize all action types and episodes without user interaction.
     Automatically cycles through all action types and their episodes.
@@ -126,7 +131,7 @@ def sequential_visualization(env, datasets, action_types):
         # Visualize all episodes for the current action type
         for episode_idx in range(dataset.num_episodes):
             # Visualize the current episode
-            viewer_alive = visualize_dataset(env, dataset, episode_idx, action_type)
+            viewer_alive = visualize_dataset(env, dataset, episode_idx, action_type, env_type)
             
             if not viewer_alive:
                 return
@@ -166,7 +171,7 @@ def main():
         return
     
     # Import mujoco_env components here to avoid immediate import
-    from mujoco_env.y_env import SimpleEnv
+    from mujoco_env.y_env import SimpleEnv, MultiObjEnv
 
     if args.env_type == 'simple':
         xml_path = './asset/example_scene_y.xml'
@@ -176,17 +181,23 @@ def main():
         raise ValueError(f"Invalid environment type: {args.env_type}")
     
     # Initialize the environment
-    if args.action_type == 'joint':
+    if args.action_type == 'joint' and args.env_type == 'simple':
         env = SimpleEnv(xml_path, seed=0, state_type='joint_angle', action_type='joint_angle')
-    elif args.action_type == 'eef_pose':
+    elif args.action_type == 'eef_pose' and args.env_type == 'simple':
         env = SimpleEnv(xml_path, seed=0, state_type='joint_angle', action_type='eef_pose')
-    elif args.action_type == 'delta_q':
+    elif args.action_type == 'delta_q' and args.env_type == 'simple':
         env = SimpleEnv(xml_path, seed=0, state_type='joint_angle', action_type='delta_joint_angle')
+    elif args.action_type == 'joint' and args.env_type == 'multi_object':
+        env = MultiObjEnv(xml_path, seed=0, state_type='joint_angle', action_type='joint_angle')
+    elif args.action_type == 'eef_pose' and args.env_type == 'multi_object':
+        env = MultiObjEnv(xml_path, seed=0, state_type='joint_angle', action_type='eef_pose')
+    elif args.action_type == 'delta_q' and args.env_type == 'multi_object':
+        env = MultiObjEnv(xml_path, seed=0, state_type='joint_angle', action_type='delta_joint_angle')
     else:
         raise ValueError(f"Invalid action type: {args.action_type}")
     
     # Start sequential visualization
-    sequential_visualization(env, datasets, list(datasets.keys()))
+    sequential_visualization(env, datasets, list(datasets.keys()), args.env_type)
     
     # Close the viewer
     env.env.close_viewer()
