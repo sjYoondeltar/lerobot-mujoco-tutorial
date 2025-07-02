@@ -1,4 +1,4 @@
-<mujoco model="mug_6">
+<mujoco model="mug_70">
   <asset>
     <mesh file="visual/model_normalized_0.obj" name="mug_6_normalized_0_vis" scale="0.12 0.12 0.12" refquat="0.7071067811865472 0.0 0.0 0.7071067811865476" />
     <mesh file="collision/model_normalized_collision_22.obj" name="mug_6_normalized_collision_22._coll" scale="0.12 0.12 0.12" refquat="0.7071067811865472 0.0 0.0 0.7071067811865476" />
@@ -33,8 +33,8 @@
     <mesh file="collision/model_normalized_collision_10.obj" name="mug_6_normalized_collision_10._coll" scale="0.12 0.12 0.12" refquat="0.7071067811865472 0.0 0.0 0.7071067811865476" />
     <mesh file="collision/model_normalized_collision_12.obj" name="mug_6_normalized_collision_12._coll" scale="0.12 0.12 0.12" refquat="0.7071067811865472 0.0 0.0 0.7071067811865476" />
     <mesh file="collision/model_normalized_collision_13.obj" name="mug_6_normalized_collision_13._coll" scale="0.12 0.12 0.12" refquat="0.7071067811865472 0.0 0.0 0.7071067811865476" />
-    <texture type="2d" name="mug_6" file="visual/image0.png" />
-    <material name="m_mug_mug_6" texture="mug_6" specular="0.5" shininess="0.359999993" />
+    <texture type="2d" name="mug_60" file="visual/image0.png" />
+    <material name="m_mug_mug_6" texture="mug_60" specular="0.5" shininess="0.359999993" />
   </asset>
   <worldbody>
     <body name="body_obj_mug_6">
