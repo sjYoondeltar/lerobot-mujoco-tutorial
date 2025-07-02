@@ -1,0 +1,26 @@
+<mujoco model="cube_6">
+  <asset>
+    <mesh file="objaverse/cube_6/visual/cube_enhanced.stl" name="cube_6_enhanced_vis" />
+    <mesh file="objaverse/cube_6/collision/cube_enhanced_collision.stl" name="cube_6_enhanced_coll" />
+    <material name="m_cube_6" rgba="0.2 0.8 0.2 1.0" specular="0.5" shininess="0.3"/>
+  </asset>
+  <worldbody>
+    <body name="body_obj_cube_6">
+      <freejoint />
+      <body name="object_cube_6">
+        <!-- Visual geometry (visible but no collision) -->
+        <geom type="mesh" mesh="cube_6_enhanced_vis" material="m_cube_6" 
+              conaffinity="0" contype="0" group="2" />
+        <!-- Anti-slip high-resolution collision mesh -->
+        <geom type="mesh" mesh="cube_6_enhanced_coll" 
+              solimp="0.95 0.99 0.001" solref="0.01 1" 
+              density="500" friction="2.0 1.5 0.05" 
+              group="3" rgba="0 0 0 0" />
+        <!-- Inertial properties for realistic dynamics -->
+        <inertial pos="0 0 0" mass="0.15" diaginertia="0.0002 0.0002 0.0002" />
+      </body>
+      <site rgba="0 0 0 0" size="0.005" pos="0 0 -0.025" name="bottom_site_cube_6"/>
+      <site rgba="0 0 0 0" size="0.005" pos="0 0 0.025" name="top_site_cube_6"/>
+    </body>
+  </worldbody>
+</mujoco> 

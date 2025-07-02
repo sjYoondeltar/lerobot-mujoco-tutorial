@@ -1,9 +1,17 @@
 import sys
 import numpy as np
-from .utils import (
-    get_colors,
-    get_idxs,
-)
+
+# Try absolute imports first, then fallback to relative imports
+try:
+    from mujoco_env.utils import (
+        get_colors,
+        get_idxs,
+    )
+except ImportError:
+    from .utils import (
+        get_colors,
+        get_idxs,
+    )
 
 # Inverse kinematics helper
 def init_ik_info():

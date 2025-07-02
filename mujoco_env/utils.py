@@ -15,9 +15,15 @@ from xml.dom import minidom
 from functools import partial
 from io import BytesIO
 import math
-from .transforms import t2p, rpy2r
+
+# Try absolute imports first, then fallback to relative imports
+try:
+    from mujoco_env.transforms import t2p, rpy2r
+except ImportError:
+    from .transforms import t2p, rpy2r
 import cv2
 from PIL import ImageDraw, ImageFont
+
 def trim_scale(x,th):
     """
         Trim scale

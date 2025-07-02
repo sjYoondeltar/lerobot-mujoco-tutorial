@@ -16,19 +16,23 @@
   </default>
 
   <asset>
-    <mesh name="base_unit" file="assets/base_unit.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="link1" file="assets/link1.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="link2" file="assets/link2.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="link3" file="assets/link3.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="link4" file="assets/link4.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="link5" file="assets/link5.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="link6" file="assets/link6.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="flange" file="assets/flange.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="base" file="assets/base.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="r1" file="assets/r1.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="r2" file="assets/r2.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="l1" file="assets/l1.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="l2" file="assets/l2.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="base_unit" file="robotis_omy/assets/base_unit.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="link1" file="robotis_omy/assets/link1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="link2" file="robotis_omy/assets/link2.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="link3" file="robotis_omy/assets/link3.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="link4" file="robotis_omy/assets/link4.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="link5" file="robotis_omy/assets/link5.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="link6" file="robotis_omy/assets/link6.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="flange" file="robotis_omy/assets/flange.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="base" file="robotis_omy/assets/base.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="r1" file="robotis_omy/assets/r1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="r2" file="robotis_omy/assets/r2.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="l1" file="robotis_omy/assets/l1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="l2" file="robotis_omy/assets/l2.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="r1_collision" file="robotis_omy/assets/r1_collision_enhanced_contact_tips.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="r2_collision" file="robotis_omy/assets/r2_collision_enhanced_contact_tips.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="l1_collision" file="robotis_omy/assets/l1_collision_enhanced_contact_tips.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="l2_collision" file="robotis_omy/assets/l2_collision_enhanced_contact_tips.stl" scale="0.001 0.001 0.001"/>
   </asset>
 
   <worldbody>
@@ -72,21 +76,37 @@
                 <body name="rh_p12_rn_r1" pos="0.00803822 -0.156994 6.40105e-06" quat="0.500398 0.5 0.5 -0.499602">
                   <inertial pos="0 0.034 0.004" mass="0.068" diaginertia="1e-06 1e-06 1e-06"/>
                   <joint name="rh_r1" pos="0 0 0" axis="1 0 0" range="0 1.1" class="gripper"/>
-                  <geom type="mesh" mesh="r1"/>
+                  <!-- Visual geometry -->
+                  <geom type="mesh" mesh="r1" contype="0" conaffinity="0" group="2"/>
+                  <!-- Anti-slip high-resolution collision geometry -->
+                  <geom type="mesh" mesh="r1_collision" group="3" rgba="0 0 0 0" 
+                        solimp="0.95 0.99 0.001" solref="0.01 1" friction="2.5 1.8 0.08"/>
                   <body name="rh_p12_rn_r2" pos="0 0.0493634 0.0285">
                     <inertial pos="0 0.006 0.011" mass="0.022" diaginertia="1e-06 1e-06 1e-06"/>
                     <joint name="rh_r2" pos="0 0 0" axis="-1 0 0" range="0 1" class="gripper"/>
-                    <geom type="mesh" mesh="r2"/>
+                    <!-- Visual geometry -->
+                    <geom type="mesh" mesh="r2" contype="0" conaffinity="0" group="2"/>
+                    <!-- Anti-slip high-resolution collision geometry -->
+                    <geom type="mesh" mesh="r2_collision" group="3" rgba="0 0 0 0" 
+                          solimp="0.95 0.99 0.001" solref="0.01 1" friction="2.5 1.8 0.08"/>
                   </body>
                 </body>
                 <body name="rh_p12_rn_l1" pos="-0.00796177 -0.157006 -6.34017e-06" quat="0.500398 0.5 0.5 -0.499602">
                   <inertial pos="0 -0.034 0.004" mass="0.068" diaginertia="1e-06 1e-06 1e-06"/>
                   <joint name="rh_l1" pos="0 0 0" axis="-1 0 0" range="0 1.1" class="gripper"/>
-                  <geom type="mesh" mesh="l1"/>
+                  <!-- Visual geometry -->
+                  <geom type="mesh" mesh="l1" contype="0" conaffinity="0" group="2"/>
+                  <!-- Anti-slip high-resolution collision geometry -->
+                  <geom type="mesh" mesh="l1_collision" group="3" rgba="0 0 0 0" 
+                        solimp="0.95 0.99 0.001" solref="0.01 1" friction="2.5 1.8 0.08"/>
                   <body name="rh_p12_rn_l2" pos="0 -0.0493634 0.0285">
                     <inertial pos="0 -0.006 0.011" mass="0.022" diaginertia="1e-06 1e-06 1e-06"/>
                     <joint name="rh_l2" pos="0 0 0" axis="1 0 0" range="0 1" class="gripper"/>
-                    <geom type="mesh" mesh="l2"/>
+                    <!-- Visual geometry -->
+                    <geom type="mesh" mesh="l2" contype="0" conaffinity="0" group="2"/>
+                    <!-- Anti-slip high-resolution collision geometry -->
+                    <geom type="mesh" mesh="l2_collision" group="3" rgba="0 0 0 0" 
+                          solimp="0.95 0.99 0.001" solref="0.01 1" friction="2.5 1.8 0.08"/>
                   </body>
                 </body>
               </body>
