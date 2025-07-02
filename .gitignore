@@ -64,3 +64,4 @@ omy_pnp
 .venv
 wandb
 omy_pnp_language
+demo_data*
