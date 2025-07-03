@@ -1,20 +1,26 @@
 # LeRobot Tutorial with MuJoCo
 This repository contains minimal examples for collecting demonstration data and training (or fine-tuning) vision language action models on custom datasets. 
 
+## Table of Contents
+- [:pencil: Installation](#installation)
+- [:mega: Updates and Plans](#updates--plans)
+- [:video_game: 1. Collect Demonstration Data](#1-collect-demonstration-data)
+- [:movie_camera: 2. Playback Your Data](#2-playback-your-data)
+- [:fire: 3. Train Action-Chunking-Transformer (ACT)](#3-train-action-chunking-transformer-act)
+- [:pushpin: 4. Deploy ACT](#4-deploy-your-policy)
+- [:floppy_disk: 5-6. Language conditioned Environment.](#5-6-collect-data-and-visualize-in-lanugage-conditioned-environment)
+- [🤗 Models and Dataset](#models-and-dataset-)
+- [:zap:7.Train and deploy pi_0](#7-train-and-deploy-pi_0)
+- [:bulb:8.Train and deploy smolvla](#8-train-and-deploy-smolvla)
+- [:pencil: Acknowledgements](#acknowledgements)
+
 ## Installation
 We have tested our environment on python 3.10. 
 
-First, let's install lerobot package.
-```
-git clone https://github.com/huggingface/lerobot.git
-cd lerobot
-pip install -e .
-```
 I do **not** recommend installing lerobot package with `pip install lerobot`. This causes errors. 
 
-Install mujoco package dependencies.
+Install mujoco package dependencies and lerobot
 ```
-cd ..
 pip install -r requirements.txt
 ```
 Make sure your mujoco version is **3.1.6**.
@@ -27,14 +33,17 @@ unzip plate_11.zip
 
 ### Updates & Plans
 
+**We are still working on the new environment for training pi0. We will update the code before end of June.**
+
 :white_check_mark: Viewer Update.
 
-:heavy_check_mark: Add different mugs, plates for different language instructions.
+:white_check_mark: Add different mugs, plates for different language instructions.
 
-:heavy_check_mark: Add pi_0 training and inference. 
+:white_check_mark: Add pi_0 training and inference. 
 
+TODO: Add SmolVLA
 
-## 1. Collection Demonstration Data
+## 1. Collect Demonstration Data
 
 Run [1.collect_data.ipynb](1.collect_data.ipynb) or use the command-line script:
 
@@ -261,6 +270,146 @@ Arguments:
 <img src="./media/rollout.gif" width="480" height="360" controls></img>
 
 The script will load the specified policy and deploy it in the MuJoCo simulation environment. The environment's action type will be automatically set to match the trained model's action type.
+
+
+## 5-6. Collect data and visualize in lanugage conditioned environment
+
+- [5.language_env.ipynb](5.language_env.ipynb): Collect Dataset with keyboard teleoperation. The command is same as first environment.
+- [6.visualize_data.ipynb](6.visualize_data.ipynb): Visualize Collected Data
+
+
+### Environment
+**Data**
+
+<img src="./media/data_v2.gif" width="480" height="360" controls></img>
+
+
+## Models and Dataset 🤗
+<table>
+  <tr>
+    <th> Model 🤗 </th>
+    <th> Dataset  🤗</th>
+    </tr>
+    <tr>
+        <td> <a href="https://huggingface.co/Jeongeun/omy_pnp_pi0"> pi_0 finetuned </a></td>
+        <td> <a href="https://huggingface.co/datasets/Jeongeun/omy_pnp_language"> dataset </a></td>
+    </tr>
+    <tr>
+        <td> <a href="https://huggingface.co/Jeongeun/omy_pnp_smolvla"> smolvla finetuned </td>
+        <td>  same dataset</td>
+    </tr>
+</table>
+
+## 7. Train and Deploy pi_0
+- [train_model.py](train_model.py): Training script
+- [pi0_omy.yaml](pi0_omy.yaml): Training configuration file
+- [7.pi0.ipynb](7.pi0.ipynb): Policy deployment
+
+
+
+### Training Scripts
+```
+python train_model.py --config_path pi0_omy.yaml
+```
+
+
+
+### Rollout of trained policy
+
+<img src="./media/rollout2.gif" width="480" height="360" controls></img>
+
+
+### Train logs
+
+<image src="./media/wandb.png"  width="480" height="360">
+
+### Configuration File
+```
+dataset:
+  repo_id: omy_pnp_language # Repository ID
+  root: ./demo_data_language # Your root for data file!
+policy:
+  type : pi0
+  chunk_size: 5
+  n_action_steps: 5
+  
+save_checkpoint: true
+output_dir: ./ckpt/pi0_omy <- Save directory
+batch_size: 16
+job_name : pi0_omy
+resume: false 
+seed : 42
+num_workers: 8
+steps: 20_000
+eval_freq: -1 # No evaluation
+log_freq: 50
+save_checkpoint: true
+save_freq: 10_000
+use_policy_training_preset: true
+  
+wandb:
+  enable: true
+  project: pi0_omy
+  entity: <your_wandb_entity>
+  disable_artifact: true
+```
+
+## 8. Train and Deploy Smolvla
+
+- [train_model.py](train_model.py): Training script
+- [smolvla_omy.yaml](smolvla_omy.yaml): Training configuration file
+- [8.smolvla.ipynb](8.smolvla.ipynb): Policy deployment
+
+
+
+### Training Scripts
+```
+python train_model.py --config_path smolvla_omy.yaml
+```
+
+
+
+### Rollout of trained policy
+
+<img src="./media/rollout3.gif" width="480" height="360" controls></img>
+
+
+### Train logs
+
+<image src="./media/wandb2.png"  width="480" height="360">
+
+### Configuration File
+```
+dataset:
+  repo_id: omy_pnp_language # Repository ID
+  root: ./demo_data_language # Your root for data file!
+policy:
+  type : smolvla
+  chunk_size: 5
+  n_action_steps: 5
+  device: cuda
+  
+save_checkpoint: true
+output_dir: ./ckpt/smolvla_omy # Save directory
+batch_size: 16
+job_name : smolvla_omy
+resume: false 
+seed : 42
+num_workers: 8
+steps: 20_000
+eval_freq: -1 # No evaluation
+log_freq: 50
+save_checkpoint: true
+save_freq: 10_000
+use_policy_training_preset: true
+  
+wandb:
+  enable: true
+  project: smolvla_omy
+  entity: <your_wandb_entity>
+  disable_artifact: true
+```
+
 
 ## Acknowledgements
 - The asset for the robotis-omy manipulator is from [robotis_mujoco_menagerie](https://github.com/ROBOTIS-GIT/robotis_mujoco_menagerie/tree/main).
