@@ -20,11 +20,11 @@ from torchvision import transforms # Import transforms
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 # Import TD-MPC specific components and environment
-from lerobot.common.policies.tdmpc.modeling_tdmpc import TDMPCPolicy
-from lerobot.common.policies.tdmpc.configuration_tdmpc import TDMPCConfig
-from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from lerobot.policies.tdmpc.modeling_tdmpc import TDMPCPolicy
+from lerobot.policies.tdmpc.configuration_tdmpc import TDMPCConfig
+from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.configs.types import FeatureType
-from lerobot.common.datasets.utils import dataset_to_policy_features
+from lerobot.datasets.utils import dataset_to_policy_features
 
 # Import the custom environment
 try:

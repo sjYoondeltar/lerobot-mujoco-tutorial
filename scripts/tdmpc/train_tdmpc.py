@@ -22,14 +22,14 @@ import matplotlib.pyplot as plt
 from torchvision import transforms # Import transforms
 
 # Import TD-MPC specific components from LeRobot
-from lerobot.common.policies.tdmpc.modeling_tdmpc import TDMPCPolicy
-from lerobot.common.policies.tdmpc.configuration_tdmpc import TDMPCConfig
+from lerobot.policies.tdmpc.modeling_tdmpc import TDMPCPolicy
+from lerobot.policies.tdmpc.configuration_tdmpc import TDMPCConfig
 
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.configs.types import FeatureType
-from lerobot.common.datasets.utils import dataset_to_policy_features
-from lerobot.common.datasets.factory import resolve_delta_timestamps
+from lerobot.datasets.utils import dataset_to_policy_features
+from lerobot.datasets.factory import resolve_delta_timestamps
 
 # Assuming EpisodeSampler might still be useful for evaluation structure
 class EpisodeSampler(torch.utils.data.Sampler):

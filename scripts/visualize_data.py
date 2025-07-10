@@ -21,7 +21,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 import torch
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 
 class EpisodeSampler(torch.utils.data.Sampler):
