@@ -21,13 +21,13 @@ import time
 import torch
 import matplotlib.pyplot as plt
 from torchvision import transforms # Import transforms
-from lerobot.common.policies.act.modeling_act import ACTPolicy
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from lerobot.policies.act.modeling_act import ACTPolicy
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.configs.types import FeatureType
-from lerobot.common.datasets.utils import dataset_to_policy_features
-from lerobot.common.policies.act.configuration_act import ACTConfig
-from lerobot.common.datasets.factory import resolve_delta_timestamps
+from lerobot.datasets.utils import dataset_to_policy_features
+from lerobot.policies.act.configuration_act import ACTConfig
+from lerobot.datasets.factory import resolve_delta_timestamps
 
 
 def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False, root_dir='./demo_data_4'):

@@ -34,7 +34,7 @@ import numpy as np
 import shutil
 from PIL import Image
 # Import the SimpleEnv inside the function to avoid immediate import
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 
 def create_dataset(repo_name, root, action_type=None, env_type='simple'):
