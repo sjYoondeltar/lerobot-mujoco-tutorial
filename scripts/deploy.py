@@ -20,16 +20,16 @@ import numpy as np
 import torch
 from PIL import Image
 import torchvision
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
-from lerobot.common.policies.act.configuration_act import ACTConfig
-from lerobot.common.policies.act.modeling_act import ACTPolicy
-from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
-from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
-from lerobot.common.policies.vqbet.configuration_vqbet import VQBeTConfig
-from lerobot.common.policies.vqbet.modeling_vqbet import VQBeTPolicy
+from lerobot.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
+from lerobot.policies.act.configuration_act import ACTConfig
+from lerobot.policies.act.modeling_act import ACTPolicy
+from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.policies.vqbet.configuration_vqbet import VQBeTConfig
+from lerobot.policies.vqbet.modeling_vqbet import VQBeTPolicy
 from lerobot.configs.types import FeatureType
-from lerobot.common.datasets.factory import resolve_delta_timestamps
-from lerobot.common.datasets.utils import dataset_to_policy_features, write_json, serialize_dict
+from lerobot.datasets.factory import resolve_delta_timestamps
+from lerobot.datasets.utils import dataset_to_policy_features, write_json, serialize_dict
 # Import mujoco_env components inside the functions
 
 # Global device setting

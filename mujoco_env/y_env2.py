@@ -12,21 +12,36 @@ import glfw
 
 class SimpleEnv2:
     def __init__(self, 
-                 xml_path,
+                 xml_path=None,
                 action_type='eef_pose', 
                 state_type='joint_angle',
-                seed = None):
+                seed = None,
+                mode='easy',
+                object_type='mug'):
         """
         args:
-            xml_path: str, path to the xml file
+            xml_path: str, path to the xml file (optional, will be auto-determined by object_type if None)
             action_type: str, type of action space, 'eef_pose','delta_joint_angle' or 'joint_angle'
             state_type: str, type of state space, 'joint_angle' or 'ee_pose'
             seed: int, seed for random number generator
+            mode: str, 'easy' or 'complex' - determines object placement strategy
+            object_type: str, 'cube' or 'mug' - determines which objects to use
         """
+        # Determine xml_path based on object_type if not provided
+        if xml_path is None:
+            if object_type == 'cube':
+                xml_path = 'asset/example_scene_y.xml'
+            elif object_type == 'mug':
+                xml_path = 'asset/example_scene_y_multi_mug.xml'
+            else:
+                raise ValueError(f"Unsupported object_type: {object_type}. Use 'cube' or 'mug'.")
+        
         # Load the xml file
         self.env = MuJoCoParserClass(name='Tabletop',rel_xml_path=xml_path)
         self.action_type = action_type
         self.state_type = state_type
+        self.mode = mode
+        self.object_type = object_type
 
         self.joint_names = ['joint1',
                     'joint2',
