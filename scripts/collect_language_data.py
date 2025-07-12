@@ -181,9 +181,6 @@ def collect_demonstrations(env, dataset, num_demos):
     # Close the environment viewer
     env.env.close_viewer()
     
-    # Clean up the images folder
-    shutil.rmtree(dataset.root / 'images')
-    
     print(f"\nData collection completed! {episode_id} demonstrations saved.")
 
 
