@@ -6,6 +6,7 @@ policy:
   chunk_size: 5
   n_action_steps: 5
   device: cuda
+  push_to_hub: false
   
 save_checkpoint: true
 output_dir: ./ckpt/smolvla_omy # Save directory
@@ -22,7 +23,7 @@ save_freq: 10_000
 use_policy_training_preset: true
   
 wandb:
-  enable: true
+  enable: false
   project: smolvla_omy
   entity: <your_wandb_entity>
   disable_artifact: true
