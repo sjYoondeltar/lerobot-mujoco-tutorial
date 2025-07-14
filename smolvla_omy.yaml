@@ -15,11 +15,11 @@ job_name : smolvla_omy
 resume: false 
 seed : 42
 num_workers: 8
-steps: 20_000
+steps: 14_000
 eval_freq: -1 # No evaluation
 log_freq: 50
 save_checkpoint: true
-save_freq: 10_000
+save_freq: 2_000
 use_policy_training_preset: true
   
 wandb:
