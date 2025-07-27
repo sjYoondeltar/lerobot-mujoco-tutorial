@@ -1,0 +1,54 @@
+dataset:
+  repo_id: omy_pnp_language # Repository ID
+  root: ./merged_omy_language_data # Your root for data file!
+
+policy:
+  type: smolvla
+  chunk_size: 5
+  n_action_steps: 5
+  device: cuda
+  push_to_hub: false
+  use_amp: true  # Enable Automatic Mixed Precision for memory efficiency
+  
+optimizer:
+  type: adamw
+  lr: 3e-4
+  weight_decay: 0.01
+  grad_clip_norm: 1.0
+  betas: [0.9, 0.999]
+
+lr_scheduler:
+  type: cosine
+  warmup_steps: 500
+
+save_checkpoint: true
+output_dir: ./ckpt/smolvla_omy_multigpu # Save directory
+batch_size: 256  # Total batch size across all GPUs (64 per GPU on 4 GPUs)
+job_name: smolvla_omy_multigpu
+resume: false 
+seed: 42
+num_workers: 16  # More workers for multi-GPU (4 per GPU)
+steps: 20_000
+eval_freq: -1 # No evaluation
+log_freq: 50
+save_checkpoint: true
+save_freq: 1_000
+use_policy_training_preset: true
+
+# Multi-GPU specific settings
+distributed:
+  backend: nccl
+  find_unused_parameters: false  # Set to true if you have unused parameters
+
+# Memory optimization settings
+memory:
+  gradient_checkpointing: true  # Enable gradient checkpointing
+  cpu_offload: false  # Set to true if memory is very tight
+  pin_memory: true
+  persistent_workers: true
+
+wandb:
+  enable: false
+  project: smolvla_omy_multigpu
+  entity: <your_wandb_entity>
+  disable_artifact: true 
