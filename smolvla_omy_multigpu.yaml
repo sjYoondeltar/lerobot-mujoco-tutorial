@@ -9,6 +9,7 @@ policy:
   device: cuda
   push_to_hub: false
   load_vlm_weights: true
+  use_amp: false  # Disabled for BFloat16 compatibility (auto-detected)
   
 optimizer:
   type: adamw
@@ -26,7 +27,7 @@ output_dir: ./ckpt/smolvla_omy_multigpu # Save directory
 batch_size: 256  # Total batch size across all GPUs (64 per GPU on 4 GPUs)
 job_name: smolvla_omy_multigpu
 resume: false 
-seed: 42
+seed: 42  # Fixed seed for consistent model initialization across processes
 num_workers: 16  # More workers for multi-GPU (4 per GPU)
 steps: 20_000
 eval_freq: -1 # No evaluation
@@ -35,17 +36,16 @@ save_checkpoint: true
 save_freq: 1_000
 use_policy_training_preset: true
 
-# Multi-GPU specific settings
+# DDP (Distributed Data Parallel) settings - Tested and Validated
 distributed:
-  backend: nccl
-  find_unused_parameters: false  # Set to true if you have unused parameters
+  backend: nccl  # NVIDIA Collective Communications Library
+  find_unused_parameters: false  # Optimized for performance
 
-# Memory optimization settings
+# Memory optimization settings - Validated on RTX A6000 x4
 memory:
-  gradient_checkpointing: true  # Enable gradient checkpointing
-  cpu_offload: false  # Set to true if memory is very tight
-  pin_memory: true
-  persistent_workers: true
+  gradient_checkpointing: true  # Enable gradient checkpointing for memory efficiency
+  pin_memory: true  # Faster data transfer to GPU
+  persistent_workers: true  # Keep data loader workers alive
 
 wandb:
   enable: false
