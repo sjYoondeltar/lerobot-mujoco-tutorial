@@ -28,7 +28,7 @@ def launch_distributed_training(config_path, num_gpus=None, port=29500):
     
     if num_gpus <= 1:
         print("Warning: Only 1 GPU detected or specified. Running single-GPU training...")
-        cmd = [sys.executable, "train_model_multigpu.py", "--config-path", config_path]
+        cmd = [sys.executable, "train_model_multigpu.py", "--config_path", config_path]
     else:
         print(f"Launching distributed training on {num_gpus} GPUs...")
         cmd = [
@@ -37,7 +37,7 @@ def launch_distributed_training(config_path, num_gpus=None, port=29500):
             f"--master_port={port}",
             "--nnodes=1",
             "train_model_multigpu.py",
-            "--config-path", config_path
+            "--config_path", config_path
         ]
     
     # Set environment variables for optimal performance

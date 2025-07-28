@@ -8,7 +8,7 @@ policy:
   n_action_steps: 5
   device: cuda
   push_to_hub: false
-  use_amp: true  # Enable Automatic Mixed Precision for memory efficiency
+  load_vlm_weights: true
   
 optimizer:
   type: adamw

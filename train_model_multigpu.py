@@ -19,12 +19,15 @@ import os
 from contextlib import nullcontext
 from pprint import pformat
 from typing import Any
+from dataclasses import dataclass
+from typing import Optional
 
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy, size_based_auto_wrap_policy
+from functools import partial
 from torch.distributed.fsdp import CPUOffload, BackwardPrefetch, MixedPrecision
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.utils.data.distributed import DistributedSampler
@@ -38,8 +41,6 @@ from lerobot.datasets.utils import cycle
 from lerobot.envs.factory import make_env
 from lerobot.optim.factory import make_optimizer_and_scheduler
 from lerobot.policies.factory import make_policy
-from lerobot.policies.pretrained import PreTrainedPolicy
-from lerobot.policies.utils import get_device_from_parameters
 from lerobot.utils.logging_utils import AverageMeter, MetricsTracker
 from lerobot.utils.random_utils import set_seed
 from lerobot.utils.train_utils import (
@@ -56,10 +57,39 @@ from lerobot.utils.utils import (
     init_logging,
 )
 from lerobot.utils.wandb_utils import WandBLogger
-from lerobot.configs.parser import parser
-from lerobot.configs.train_config import TrainPipelineConfig
-from lerobot.policies.act.modeling_act import ACTPolicy
-from lerobot.policies.vla.modeling_vla import VLAPolicy
+from lerobot.configs import parser
+from lerobot.configs.train import TrainPipelineConfig
+
+
+@dataclass
+class LRSchedulerConfig:
+    """Learning rate scheduler configuration"""
+    type: str = "cosine"
+    warmup_steps: int = 500
+
+
+@dataclass 
+class DistributedConfig:
+    """Distributed training configuration"""
+    backend: str = "nccl"
+    find_unused_parameters: bool = False
+
+
+@dataclass
+class MemoryConfig:
+    """Memory optimization configuration"""
+    gradient_checkpointing: bool = True
+    cpu_offload: bool = False
+    pin_memory: bool = True
+    persistent_workers: bool = True
+
+
+@dataclass
+class ExtendedTrainPipelineConfig(TrainPipelineConfig):
+    """Extended training configuration with multi-GPU support"""
+    lr_scheduler: Optional[LRSchedulerConfig] = None
+    distributed: Optional[DistributedConfig] = None
+    memory: Optional[MemoryConfig] = None
 
 
 def setup_distributed():
@@ -89,69 +119,80 @@ def cleanup_distributed():
 
 def get_fsdp_wrap_policy(policy_type):
     """Get FSDP auto wrap policy based on policy type"""
-    if policy_type in ["smolvla", "vla"]:
-        # For transformer-based models, wrap transformer blocks
-        from transformers.models.idefics2.modeling_idefics2 import Idefics2DecoderLayer
-        from transformers.models.siglip.modeling_siglip import SiglipEncoderLayer
+    if policy_type in ["smolvla"]:
+        # SmolVLA uses LlamaDecoderLayer as main transformer component
+        try:
+            from transformers.models.llama.modeling_llama import LlamaDecoderLayer
+            transformer_layers = {LlamaDecoderLayer}
+        except ImportError:
+            # Use size-based policy as fallback
+            return size_based_auto_wrap_policy(min_num_params=1e6)
         
-        return transformer_auto_wrap_policy(
-            transformer_layer_cls={
-                Idefics2DecoderLayer,
-                SiglipEncoderLayer,
-            }
-        )
+        # Also try to include vision encoder layers if available
+        try:
+            from transformers.models.siglip.modeling_siglip import SiglipEncoderLayer
+            transformer_layers.add(SiglipEncoderLayer)
+        except ImportError:
+            pass  # Skip if not available
+        
+        return partial(transformer_auto_wrap_policy, transformer_layer_cls=transformer_layers)
     else:
         # For other models, use size-based wrapping
         return size_based_auto_wrap_policy(min_num_params=1e6)
 
 
-def setup_fsdp_policy(policy, device, policy_type):
-    """Setup FSDP for the policy"""
+def setup_distributed_policy(policy, device, policy_type, use_fsdp=False):
+    """Setup distributed training for the policy"""
     
-    # Mixed precision policy
-    mixed_precision_policy = MixedPrecision(
-        param_dtype=torch.float16,
-        reduce_dtype=torch.float16,
-        buffer_dtype=torch.float16,
-    )
+    if use_fsdp:
+        # Try FSDP first - disable mixed precision to avoid dtype conflicts
+        try:
+            # FSDP configuration without mixed precision
+            fsdp_policy = FSDP(
+                policy,
+                auto_wrap_policy=get_fsdp_wrap_policy(policy_type),
+                backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
+                device_id=device,
+                sync_module_states=True,
+                use_orig_params=True,
+            )
+            return fsdp_policy
+        except Exception as e:
+            print(f"FSDP failed: {e}")
+            print("Falling back to DDP...")
     
-    # CPU offload for very large models
-    cpu_offload = CPUOffload(offload_params=False)  # Set to True if memory is very tight
-    
-    # FSDP configuration
-    fsdp_policy = FSDP(
+    # Use DDP as fallback
+    ddp_policy = DDP(
         policy,
-        auto_wrap_policy=get_fsdp_wrap_policy(policy_type),
-        mixed_precision=mixed_precision_policy,
-        backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
-        cpu_offload=cpu_offload,
-        device_id=device,
-        sync_module_states=True,  # Ensure all ranks have same initial state
-        use_orig_params=True,  # Better for optimizers
+        device_ids=[device.index] if device.type == 'cuda' else None,
+        output_device=device.index if device.type == 'cuda' else None,
+        find_unused_parameters=False,
+        gradient_as_bucket_view=True,  # Memory optimization
+        broadcast_buffers=True,  # Ensure buffer consistency
+        static_graph=False,  # Allow dynamic graphs
     )
     
-    return fsdp_policy
+    return ddp_policy
 
 
-def update_policy_fsdp(
+def update_policy_distributed(
     train_tracker: MetricsTracker,
     policy: torch.nn.Module,
     batch: dict[str, torch.Tensor],
     optimizer: Optimizer,
     grad_clip_norm: float,
-    grad_scaler: ShardedGradScaler,
+    grad_scaler: GradScaler,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     use_amp: bool = False,
 ) -> tuple[MetricsTracker, dict[str, Any]]:
-    """Update policy with FSDP support"""
+    """Update policy with distributed training support"""
     start_time = time.perf_counter()
     
     policy.train()
     
     # Forward pass with optional AMP
     with torch.autocast(device_type="cuda", enabled=use_amp):
-        output_dict = policy.forward(batch)
-        loss = output_dict["loss"]
+        loss, output_dict = policy.forward(batch)
     
     # Backward pass with gradient scaling
     grad_scaler.scale(loss).backward()
@@ -225,7 +266,7 @@ def create_distributed_dataloader(dataset, cfg, rank, world_size, sampler=None):
 
 
 @parser.wrap()
-def train(cfg: TrainPipelineConfig):
+def train(cfg: ExtendedTrainPipelineConfig):
     """Multi-GPU training with FSDP"""
     
     # Setup distributed training
@@ -275,26 +316,57 @@ def train(cfg: TrainPipelineConfig):
     elif cfg.policy.type == 'smolvla':
         cfg.policy.pretrained_path = 'lerobot/smolvla_base'
     
-    policy = make_policy(cfg=cfg.policy, ds_meta=dataset.meta)
+    # Ensure same random seed for consistent model initialization across processes
+    if cfg.seed is not None:
+        torch.manual_seed(cfg.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(cfg.seed)
+            torch.cuda.manual_seed_all(cfg.seed)
     
-    # Setup FSDP
-    if world_size > 1:
-        policy = setup_fsdp_policy(policy, device, cfg.policy.type)
-        if is_main_process:
-            logging.info("Policy wrapped with FSDP")
-    else:
-        policy = policy.to(device)
+    policy = make_policy(cfg=cfg.policy, ds_meta=dataset.meta)
+    policy = policy.to(device)
+    
+    # Synchronize model parameters across all processes
+    if world_size > 1 and dist.is_initialized():
+        with torch.no_grad():
+            for param in policy.parameters():
+                dist.broadcast(param.data, src=0)
+            for buffer in policy.buffers():
+                dist.broadcast(buffer.data, src=0)
+        
+        # Wait for all processes to complete synchronization
+        dist.barrier()
     
     if is_main_process:
         logging.info("Creating optimizer and scheduler")
     
     optimizer, lr_scheduler = make_optimizer_and_scheduler(cfg, policy)
     
-    # Use ShardedGradScaler for FSDP
+    # Setup distributed training AFTER synchronization
     if world_size > 1:
-        grad_scaler = ShardedGradScaler(enabled=cfg.policy.use_amp)
-    else:
-        grad_scaler = GradScaler(device.type, enabled=cfg.policy.use_amp)
+        # Use DDP directly since FSDP has dtype issues
+        try:
+            policy = DDP(
+                policy,
+                device_ids=[local_rank] if device.type == 'cuda' else None,
+                output_device=local_rank if device.type == 'cuda' else None,
+                find_unused_parameters=False,
+                gradient_as_bucket_view=True,
+                broadcast_buffers=True,
+            )
+            if is_main_process:
+                logging.info("Policy wrapped with DDP")
+        except Exception as e:
+            if is_main_process:
+                logging.error(f"DDP setup failed: {e}")
+            raise
+    
+    # Disable AMP for BFloat16 compatibility
+    use_amp = cfg.policy.use_amp and not any(p.dtype == torch.bfloat16 for p in policy.parameters())
+    grad_scaler = GradScaler(device.type, enabled=use_amp)
+    
+    if is_main_process and not use_amp and cfg.policy.use_amp:
+        logging.warning("AMP disabled due to BFloat16 parameters in model")
     
     step = 0
     if cfg.resume:
@@ -358,7 +430,7 @@ def train(cfg: TrainPipelineConfig):
         
         # Update policy
         if world_size > 1:
-            train_tracker, output_dict = update_policy_fsdp(
+            train_tracker, output_dict = update_policy_distributed(
                 train_tracker,
                 policy,
                 batch,
@@ -366,7 +438,7 @@ def train(cfg: TrainPipelineConfig):
                 cfg.optimizer.grad_clip_norm,
                 grad_scaler=grad_scaler,
                 lr_scheduler=lr_scheduler,
-                use_amp=cfg.policy.use_amp,
+                use_amp=use_amp,
             )
         else:
             # Use original update function for single GPU
@@ -379,7 +451,7 @@ def train(cfg: TrainPipelineConfig):
                 cfg.optimizer.grad_clip_norm,
                 grad_scaler=grad_scaler,
                 lr_scheduler=lr_scheduler,
-                use_amp=cfg.policy.use_amp,
+                use_amp=use_amp,
             )
         
         step += 1
