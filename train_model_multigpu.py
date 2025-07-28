@@ -379,8 +379,13 @@ def train(cfg: TrainPipelineConfig):
             logging.info(f"Checkpoint policy after step {step}")
             checkpoint_dir = get_step_checkpoint_dir(cfg.output_dir, cfg.steps, step)
             
-            # Save checkpoint (DDP handles state_dict automatically)
-            save_checkpoint(checkpoint_dir, step, cfg, policy, optimizer, lr_scheduler)
+            # Save checkpoint - extract original model from DDP wrapper
+            if world_size > 1:
+                # For DDP, access the original model via .module
+                original_policy = policy.module
+            else:
+                original_policy = policy
+            save_checkpoint(checkpoint_dir, step, cfg, original_policy, optimizer, lr_scheduler)
             
             update_last_checkpoint(checkpoint_dir)
             if wandb_logger:
