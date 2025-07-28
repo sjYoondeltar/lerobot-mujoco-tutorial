@@ -19,17 +19,9 @@ import os
 from contextlib import nullcontext
 from pprint import pformat
 from typing import Any
-from dataclasses import dataclass
-from typing import Optional
-
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy, size_based_auto_wrap_policy
-from functools import partial
-from torch.distributed.fsdp import CPUOffload, BackwardPrefetch, MixedPrecision
-from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.utils.data.distributed import DistributedSampler
 from termcolor import colored
 from torch.amp import GradScaler
@@ -61,35 +53,7 @@ from lerobot.configs import parser
 from lerobot.configs.train import TrainPipelineConfig
 
 
-@dataclass
-class LRSchedulerConfig:
-    """Learning rate scheduler configuration"""
-    type: str = "cosine"
-    warmup_steps: int = 500
 
-
-@dataclass 
-class DistributedConfig:
-    """Distributed training configuration"""
-    backend: str = "nccl"
-    find_unused_parameters: bool = False
-
-
-@dataclass
-class MemoryConfig:
-    """Memory optimization configuration"""
-    gradient_checkpointing: bool = True
-    cpu_offload: bool = False
-    pin_memory: bool = True
-    persistent_workers: bool = True
-
-
-@dataclass
-class ExtendedTrainPipelineConfig(TrainPipelineConfig):
-    """Extended training configuration with multi-GPU support"""
-    lr_scheduler: Optional[LRSchedulerConfig] = None
-    distributed: Optional[DistributedConfig] = None
-    memory: Optional[MemoryConfig] = None
 
 
 def setup_distributed():
@@ -115,64 +79,6 @@ def cleanup_distributed():
     """Cleanup distributed training"""
     if dist.is_initialized():
         dist.destroy_process_group()
-
-
-def get_fsdp_wrap_policy(policy_type):
-    """Get FSDP auto wrap policy based on policy type"""
-    if policy_type in ["smolvla"]:
-        # SmolVLA uses LlamaDecoderLayer as main transformer component
-        try:
-            from transformers.models.llama.modeling_llama import LlamaDecoderLayer
-            transformer_layers = {LlamaDecoderLayer}
-        except ImportError:
-            # Use size-based policy as fallback
-            return size_based_auto_wrap_policy(min_num_params=1e6)
-        
-        # Also try to include vision encoder layers if available
-        try:
-            from transformers.models.siglip.modeling_siglip import SiglipEncoderLayer
-            transformer_layers.add(SiglipEncoderLayer)
-        except ImportError:
-            pass  # Skip if not available
-        
-        return partial(transformer_auto_wrap_policy, transformer_layer_cls=transformer_layers)
-    else:
-        # For other models, use size-based wrapping
-        return size_based_auto_wrap_policy(min_num_params=1e6)
-
-
-def setup_distributed_policy(policy, device, policy_type, use_fsdp=False):
-    """Setup distributed training for the policy"""
-    
-    if use_fsdp:
-        # Try FSDP first - disable mixed precision to avoid dtype conflicts
-        try:
-            # FSDP configuration without mixed precision
-            fsdp_policy = FSDP(
-                policy,
-                auto_wrap_policy=get_fsdp_wrap_policy(policy_type),
-                backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
-                device_id=device,
-                sync_module_states=True,
-                use_orig_params=True,
-            )
-            return fsdp_policy
-        except Exception as e:
-            print(f"FSDP failed: {e}")
-            print("Falling back to DDP...")
-    
-    # Use DDP as fallback
-    ddp_policy = DDP(
-        policy,
-        device_ids=[device.index] if device.type == 'cuda' else None,
-        output_device=device.index if device.type == 'cuda' else None,
-        find_unused_parameters=False,
-        gradient_as_bucket_view=True,  # Memory optimization
-        broadcast_buffers=True,  # Ensure buffer consistency
-        static_graph=False,  # Allow dynamic graphs
-    )
-    
-    return ddp_policy
 
 
 def update_policy_distributed(
@@ -342,24 +248,18 @@ def train(cfg: ExtendedTrainPipelineConfig):
     
     optimizer, lr_scheduler = make_optimizer_and_scheduler(cfg, policy)
     
-    # Setup distributed training AFTER synchronization
+    # Setup DDP for multi-GPU training
     if world_size > 1:
-        # Use DDP directly since FSDP has dtype issues
-        try:
-            policy = DDP(
-                policy,
-                device_ids=[local_rank] if device.type == 'cuda' else None,
-                output_device=local_rank if device.type == 'cuda' else None,
-                find_unused_parameters=False,
-                gradient_as_bucket_view=True,
-                broadcast_buffers=True,
-            )
-            if is_main_process:
-                logging.info("Policy wrapped with DDP")
-        except Exception as e:
-            if is_main_process:
-                logging.error(f"DDP setup failed: {e}")
-            raise
+        policy = DDP(
+            policy,
+            device_ids=[local_rank] if device.type == 'cuda' else None,
+            output_device=local_rank if device.type == 'cuda' else None,
+            find_unused_parameters=False,
+            gradient_as_bucket_view=True,
+            broadcast_buffers=True,
+        )
+        if is_main_process:
+            logging.info("Policy wrapped with DDP")
     
     # Disable AMP for BFloat16 compatibility
     use_amp = cfg.policy.use_amp and not any(p.dtype == torch.bfloat16 for p in policy.parameters())
@@ -545,4 +445,4 @@ def train(cfg: ExtendedTrainPipelineConfig):
 
 if __name__ == "__main__":
     init_logging()
-    train() 
+    train()
