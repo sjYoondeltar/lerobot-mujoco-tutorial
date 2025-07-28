@@ -1,0 +1,49 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+    
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Debug Diffusion Policy",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/diffusion_policy/train_dp.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "--action_type", "joint"
+            ]
+        },
+        {
+            "name": "Deploy SmolVLA - Local Checkpoint",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/deploy_smolvla.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "TOKENIZERS_PARALLELISM": "false"
+            },
+            "args": [
+                "--ckpt_path", "./ckpt/smolvla_omy/checkpoints/last/pretrained_model",
+                "--dataset_root", "./demo_data_language",
+                "--max_episodes", "1",
+                "--control_hz", "20",
+                "--device", "cuda"
+            ]
+        },
+    ]
+}

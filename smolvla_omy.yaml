@@ -1,16 +1,16 @@
 dataset:
   repo_id: omy_pnp_language # Repository ID
-  root: ./demo_data_language # Your root for data file!
+  root: ./merged_omy_language_data # Your root for data file!
 policy:
   type : smolvla
-  chunk_size: 5
-  n_action_steps: 5
+  chunk_size: 10
+  n_action_steps: 10
   device: cuda
   push_to_hub: false
   
 save_checkpoint: true
 output_dir: ./ckpt/smolvla_omy # Save directory
-batch_size: 16
+batch_size: 128
 job_name : smolvla_omy
 resume: false 
 seed : 42
@@ -19,7 +19,7 @@ steps: 20_000
 eval_freq: -1 # No evaluation
 log_freq: 50
 save_checkpoint: true
-save_freq: 10_000
+save_freq: 1_000
 use_policy_training_preset: true
   
 wandb:

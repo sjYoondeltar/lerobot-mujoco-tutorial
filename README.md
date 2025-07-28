@@ -359,15 +359,38 @@ wandb:
 - [train_model.py](train_model.py): Training script
 - [smolvla_omy.yaml](smolvla_omy.yaml): Training configuration file
 - [8.smolvla.ipynb](8.smolvla.ipynb): Policy deployment
-
-
+- [scripts/deploy_smolvla.py](scripts/deploy_smolvla.py): SmolVLA deployment script
 
 ### Training Scripts
-```
+```bash
 python train_model.py --config_path smolvla_omy.yaml
 ```
 
+### Deployment Scripts
+```bash
+# Deploy from local checkpoint
+python scripts/deploy_smolvla.py --ckpt_path ./ckpt/smolvla_omy/checkpoints/last/pretrained_model
 
+# Deploy from Hugging Face Hub
+python scripts/deploy_smolvla.py --hub_model Jeongeun/omy_pnp_smolvla --dataset_root ./omy_pnp_language
+
+# Custom deployment with parameters
+python scripts/deploy_smolvla.py \
+    --ckpt_path ./ckpt/smolvla_omy/checkpoints/last/pretrained_model \
+    --dataset_root ./demo_data_language \
+    --max_episodes 5 \
+    --control_hz 20 \
+    --device cuda
+```
+
+**Deployment Arguments:**
+- `--ckpt_path`: Path to local checkpoint
+- `--hub_model`: Hugging Face model name (alternative to ckpt_path)
+- `--dataset_root`: Root directory for dataset metadata (default: ./demo_data_language)
+- `--xml_path`: Path to MuJoCo XML file (default: ./asset/example_scene_y2.xml)
+- `--device`: Device to run on (cuda/cpu, default: cuda)
+- `--max_episodes`: Maximum episodes to run (default: 10)
+- `--control_hz`: Control frequency in Hz (default: 20)
 
 ### Rollout of trained policy
 
