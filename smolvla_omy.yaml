@@ -7,6 +7,7 @@ policy:
   n_action_steps: 5
   device: cuda
   push_to_hub: false
+  load_vlm_weights: true
   
 save_checkpoint: true
 output_dir: ./ckpt/smolvla_omy # Save directory
