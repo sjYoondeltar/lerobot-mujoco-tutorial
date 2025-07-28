@@ -3,14 +3,15 @@ dataset:
   root: ./merged_omy_language_data # Your root for data file!
 policy:
   type : smolvla
-  chunk_size: 10
-  n_action_steps: 10
+  chunk_size: 5
+  n_action_steps: 5
   device: cuda
   push_to_hub: false
+  load_vlm_weights: true
   
 save_checkpoint: true
 output_dir: ./ckpt/smolvla_omy # Save directory
-batch_size: 128
+batch_size: 64
 job_name : smolvla_omy
 resume: false 
 seed : 42
