@@ -172,8 +172,8 @@ def create_distributed_dataloader(dataset, cfg, rank, world_size, sampler=None):
 
 
 @parser.wrap()
-def train(cfg: ExtendedTrainPipelineConfig):
-    """Multi-GPU training with FSDP"""
+def train(cfg: TrainPipelineConfig):
+    """Multi-GPU training with DDP"""
     
     # Setup distributed training
     rank, world_size, local_rank = setup_distributed()
@@ -197,7 +197,7 @@ def train(cfg: ExtendedTrainPipelineConfig):
         logging.info(colored("Logs will be saved locally.", "yellow", attrs=["bold"]))
     
     if cfg.seed is not None:
-        set_seed(cfg.seed + rank)  # Different seed per rank
+        set_seed(cfg.seed)  # Same seed for consistent initialization
     
     # Enable optimizations
     torch.backends.cudnn.benchmark = True
@@ -379,12 +379,8 @@ def train(cfg: ExtendedTrainPipelineConfig):
             logging.info(f"Checkpoint policy after step {step}")
             checkpoint_dir = get_step_checkpoint_dir(cfg.output_dir, cfg.steps, step)
             
-            # For FSDP, use state_dict with full_state_dict context
-            if world_size > 1:
-                with FSDP.state_dict_type(policy, FSDP.StateDictType.FULL_STATE_DICT):
-                    save_checkpoint(checkpoint_dir, step, cfg, policy, optimizer, lr_scheduler)
-            else:
-                save_checkpoint(checkpoint_dir, step, cfg, policy, optimizer, lr_scheduler)
+            # Save checkpoint (DDP handles state_dict automatically)
+            save_checkpoint(checkpoint_dir, step, cfg, policy, optimizer, lr_scheduler)
             
             update_last_checkpoint(checkpoint_dir)
             if wandb_logger:
