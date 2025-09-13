@@ -30,6 +30,49 @@ from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.datasets.factory import resolve_delta_timestamps
 
 
+class DownsampledDataset(torch.utils.data.Dataset):
+    """
+    Dataset wrapper that downsamples the original dataset by taking every nth frame
+    """
+    def __init__(self, original_dataset, downsample_factor=5):
+        """
+        Args:
+            original_dataset: Original LeRobotDataset
+            downsample_factor: Factor by which to downsample (e.g., 5 for 5Hz->1Hz)
+        """
+        self.original_dataset = original_dataset
+        self.downsample_factor = downsample_factor
+        
+        # 다운샘플링된 인덱스 생성
+        self.downsampled_indices = []
+        
+        # 각 에피소드에 대해 다운샘플링된 인덱스 계산
+        for episode_idx in range(len(original_dataset.episode_data_index["from"])):
+            from_idx = original_dataset.episode_data_index["from"][episode_idx].item()
+            to_idx = original_dataset.episode_data_index["to"][episode_idx].item()
+            
+            # 에피소드 내에서 매 downsample_factor번째 프레임 선택
+            episode_indices = list(range(from_idx, to_idx, downsample_factor))
+            self.downsampled_indices.extend(episode_indices)
+        
+        print(f"Original dataset size: {len(original_dataset)}")
+        print(f"Downsampled dataset size: {len(self.downsampled_indices)}")
+    
+    def __len__(self):
+        return len(self.downsampled_indices)
+    
+    def __getitem__(self, idx):
+        # 다운샘플링된 인덱스를 사용해서 원본 데이터셋에서 데이터 가져오기
+        original_idx = self.downsampled_indices[idx]
+        return self.original_dataset[original_idx]
+    
+    def __getattr__(self, name):
+        # 원본 데이터셋의 속성들을 그대로 노출
+        if hasattr(self.original_dataset, name):
+            return getattr(self.original_dataset, name)
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+
+
 def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False, root_dir='./demo_data_4'):
     """
     Create a new policy or load from checkpoint
@@ -92,7 +135,7 @@ def create_or_load_policy(ckpt_dir, action_type='joint', load_ckpt=False, root_d
     return policy, dataset_metadata, action_type_ckpt_dir
 
 
-def prepare_data(dataset_name, policy, dataset_metadata, action_type, root_dir='./demo_data_4'):
+def prepare_data(dataset_name, policy, dataset_metadata, action_type, root_dir='./demo_data_4', downsample_hz=1):
     """
     Prepare data for training using the new API
     
@@ -102,6 +145,7 @@ def prepare_data(dataset_name, policy, dataset_metadata, action_type, root_dir='
         dataset_metadata: Metadata for the dataset
         action_type: Type of action to train with
         root_dir: Root directory for dataset
+        downsample_hz: Target frequency in Hz for downsampling (default: 1Hz)
     """
     # Policy의 config에서 delta_timestamps 해석
     delta_timestamps = resolve_delta_timestamps(policy.config, dataset_metadata)
@@ -128,6 +172,18 @@ def prepare_data(dataset_name, policy, dataset_metadata, action_type, root_dir='
         root=dataset_root,
         image_transforms=image_augmentation_transforms # Pass the defined transforms
     )
+    
+    # 다운샘플링을 위한 커스텀 데이터셋 래퍼 생성
+    # 데이터셋의 주파수를 자동으로 감지하거나 설정
+    if 'cube_1hz' in root_dir:
+        original_hz = 1  # demo_data_cube_1hz는 이미 1Hz로 다운샘플링됨
+    else:
+        original_hz = 5  # demo_data_cube는 5Hz로 수집됨
+    
+    if downsample_hz < original_hz:
+        downsample_factor = original_hz // downsample_hz
+        print(f"Downsampling dataset from {original_hz}Hz to {downsample_hz}Hz (every {downsample_factor}th frame)")
+        dataset = DownsampledDataset(dataset, downsample_factor=downsample_factor)
     
     # 훈련용 데이터로더 생성
     dataloader = torch.utils.data.DataLoader(
@@ -380,6 +436,7 @@ def main():
     parser.add_argument('--num_epochs', type=int, default=3000, help='Number of epochs to train')
     parser.add_argument('--data_root', type=str, default='./demo_data_4', help='Path to demonstration data')
     parser.add_argument('--ckpt_dir', type=str, default='./ckpt/act_y_v4', help='Path to save checkpoints')
+    parser.add_argument('--downsample_hz', type=int, default=1, help='Target frequency in Hz for downsampling (default: 1Hz from 5Hz data)')
     args = parser.parse_args()
 
     # Use global variable to share action type
@@ -397,8 +454,8 @@ def main():
             ckpt_dir, action_type=ACTION_TYPE, load_ckpt=args.load_ckpt, root_dir=args.data_root
         )
         
-        # 데이터 준비
-        dataset, dataloader = prepare_data('omy_pnp', policy, dataset_metadata, ACTION_TYPE, root_dir=args.data_root)
+        # 데이터 준비 (다운샘플링)
+        dataset, dataloader = prepare_data('omy_pnp', policy, dataset_metadata, ACTION_TYPE, root_dir=args.data_root, downsample_hz=args.downsample_hz)
         
         # 정책 훈련
         print("Training policy...")
